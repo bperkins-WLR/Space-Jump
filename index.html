@@ -135,7 +135,7 @@
 </style>
 </head>
 <body>
-<div id="hud">Level: <span id="level">1</span> &nbsp;·&nbsp; Score: <span id="score">0</span> &nbsp;·&nbsp; Best: <span id="best">0</span></div>
+<div id="hud">Level: <span id="level">1</span> &nbsp;·&nbsp; Score: <span id="score">0</span> &nbsp;·&nbsp; <span style="color:#ffd633;">⊙</span> <span id="coins">0</span> &nbsp;·&nbsp; Best: <span id="best">0</span></div>
 <div id="levelFlash"></div>
 
 <div id="touch">
@@ -171,6 +171,7 @@
   const scoreEl = document.getElementById('score');
   const bestEl = document.getElementById('best');
   const levelEl = document.getElementById('level');
+  const coinsEl = document.getElementById('coins');
   const levelFlashEl = document.getElementById('levelFlash');
   const overlay = document.getElementById('overlay');
   const titleEl = document.getElementById('title');
@@ -182,6 +183,7 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch {} }
   };
   let best = +storage.get('spaceJumper3DBest') || 0;
+  let bestCoins = +storage.get('spaceJumper3DBestCoins') || 0;
   bestEl.textContent = best;
 
   // Prevent iOS pinch/double-tap zoom
@@ -1374,7 +1376,7 @@
   }
 
   // ---------- Game flow ----------
-  let started = false, score = 0, deathTimer = 0;
+  let started = false, score = 0, coinsCollected = 0, deathTimer = 0;
   let currentLevel = 1;
   let flashTimer = 0;
   let shakeAmt = 0;
@@ -1410,9 +1412,11 @@
     prevSpawnY = platforms[platforms.length-1].y;
     prevSpawnZ = platforms[platforms.length-1].z;
     score = 0;
+    coinsCollected = 0;
     deathTimer = 0;
     currentLevel = 1;
     scoreEl.textContent = '0';
+    coinsEl.textContent = '0';
     levelEl.textContent = '1';
     levelFlashEl.classList.remove('show');
     jumpPressed = false; jumpHeld = false;
@@ -1440,6 +1444,10 @@
       storage.set('spaceJumper3DBest', best);
       bestEl.textContent = best;
     }
+    if (coinsCollected > bestCoins) {
+      bestCoins = coinsCollected;
+      storage.set('spaceJumper3DBestCoins', bestCoins);
+    }
   }
   function lavaDeath() {
     burst(player.pos.x, LAVA_Y + 1, player.pos.z, 0xff5522, 24, { speed: 5, gravity: 18, upward: true });
@@ -1451,7 +1459,9 @@
   }
   function showGameOverOverlay() {
     titleEl.textContent = '🕊️ ANIMAL HEAVEN';
-    subtitleEl.textContent = `Final score: ${score}   ·   Best: ${best}`;
+    subtitleEl.innerHTML =
+      `Final score: ${score}   ·   Best: ${best}<br>` +
+      `<span style="color:#ffd633;">⊙</span> Rings collected: ${coinsCollected}   ·   Best: ${bestCoins}`;
     startBtn.textContent = 'Try again';
     overlay.classList.remove('hidden');
   }
@@ -1654,7 +1664,9 @@
         c.collected = true;
         c.mesh.visible = false;
         score += 5;
+        coinsCollected += 1;
         scoreEl.textContent = score;
+        coinsEl.textContent = coinsCollected;
         sfx.coin();
         burst(c.x, c.y, c.z, 0xffd633, 14, { speed: 3, gravity: 4, upward: true });
       }
