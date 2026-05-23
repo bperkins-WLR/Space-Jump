@@ -67,12 +67,15 @@
     box-shadow: 0 0 20px rgba(80,160,255,0.5);
   }
   #levelFlash {
-    position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%);
-    font-size: 64px; font-weight: 800; letter-spacing: 4px;
-    color: #fff; text-shadow: 0 0 20px #6cf, 0 0 40px #36f;
-    opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 15;
+    position: fixed; top: 28%; left: 50%; transform: translate(-50%, -50%) scale(0.7);
+    font-size: 60px; font-weight: 800; letter-spacing: 3px;
+    color: #fff;
+    text-shadow: 0 0 20px #fc6, 0 0 40px #f93, 0 0 70px #f60;
+    opacity: 0; pointer-events: none; z-index: 15;
+    text-align: center; line-height: 1.15;
+    transition: opacity 0.25s, transform 0.4s cubic-bezier(.34,1.56,.64,1);
   }
-  #levelFlash.show { opacity: 1; }
+  #levelFlash.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
   /* ---------- Touch controls ---------- */
   #touch {
@@ -796,6 +799,36 @@
       });
     }
   }
+  // Confetti burst — bigger, multi-colored, longer-lived particles for level-up celebrations
+  function confetti(x, y, z) {
+    const colors = [0xff3366, 0xffcc33, 0x33ff99, 0x3399ff, 0xcc66ff, 0xff9933, 0xffffff, 0xff66aa, 0x66ffcc, 0xffee55];
+    const N = 90;
+    for (let i = 0; i < N; i++) {
+      const matC = new THREE.MeshBasicMaterial({
+        color: colors[Math.floor(Math.random() * colors.length)],
+        transparent: true, opacity: 1
+      });
+      const m = new THREE.Mesh(particleGeo, matC);
+      m.position.set(
+        x + (Math.random() - 0.5) * 3,
+        y + 0.5 + Math.random() * 2,
+        z + (Math.random() - 0.5) * 3
+      );
+      m.scale.setScalar(1.1 + Math.random() * 1.4);
+      scene.add(m);
+      const lifeBase = 1.6 + Math.random() * 1.2;
+      particles.push({
+        mesh: m,
+        vx: (Math.random() - 0.5) * 9,
+        vy: 6 + Math.random() * 6,
+        vz: (Math.random() - 0.5) * 9,
+        life: lifeBase,
+        maxLife: lifeBase,
+        gravity: 8 + Math.random() * 4
+      });
+    }
+  }
+
   function updateParticles(dt) {
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
@@ -1054,10 +1087,12 @@
   let flashTimer = 0;
   let shakeAmt = 0;
 
-  function flashLevel(n) {
-    levelFlashEl.textContent = 'LEVEL ' + n;
+  function flashLevel(passedLvl, newLvl) {
+    levelFlashEl.innerHTML =
+      '🏆 LEVEL ' + passedLvl + ' COMPLETE!' +
+      '<br><span style="font-size:0.55em;opacity:0.85;">Now on Level ' + newLvl + '</span>';
     levelFlashEl.classList.add('show');
-    flashTimer = 1.5;
+    flashTimer = 2.2;
   }
 
   function reset() {
@@ -1256,10 +1291,13 @@
 
     const lvl = difficultyAt(player.pos.x).lvl;
     if (lvl !== currentLevel) {
+      const passed = currentLevel;
       currentLevel = lvl;
       levelEl.textContent = lvl;
-      flashLevel(lvl);
+      flashLevel(passed, lvl);
       sfx.levelup();
+      setAnimal(animalIdx + 1);
+      confetti(player.pos.x, player.pos.y + 0.8, player.pos.z);
     }
 
     spawnAhead();
