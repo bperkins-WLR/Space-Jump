@@ -150,7 +150,7 @@
 
 <div id="overlay">
   <h1 id="title">SPACE JUMPER 3D</h1>
-  <p id="subtitle">Hop the animal across floating platforms. Don't fall in the lava.</p>
+  <p id="subtitle">Hop the animal across floating platforms in a sea of fluffy clouds.</p>
   <p id="animalName" style="font-size:24px;margin:6px 0 12px;text-shadow:0 0 12px #6cf;">🦊 Fox</p>
   <p class="kbd">Keys: W/↑ forward · A D strafe · SPACE to jump (hold for higher · tap again for double jump)</p>
   <p class="touchhint">On iPad: use the on-screen buttons. Tap JUMP twice for a double jump.</p>
@@ -246,7 +246,7 @@
 
   // ---------- Three.js setup ----------
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x080018, 0.012);
+  scene.fog = new THREE.FogExp2(0xc4e4ff, 0.009);
 
   const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 500);
   camera.position.set(-8, 6, 0);
@@ -255,7 +255,7 @@
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
-  renderer.setClearColor(0x000010);
+  renderer.setClearColor(0x88ccff);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.body.appendChild(renderer.domElement);
@@ -269,8 +269,8 @@
   window.addEventListener('orientationchange', () => setTimeout(onResize, 100));
 
   // ---------- Lights ----------
-  scene.add(new THREE.AmbientLight(0x506688, 0.55));
-  const sun = new THREE.DirectionalLight(0xfff0d0, 1.1);
+  scene.add(new THREE.AmbientLight(0xb6d0ee, 0.8));
+  const sun = new THREE.DirectionalLight(0xfff5d8, 1.25);
   sun.position.set(20, 40, 15);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -284,63 +284,101 @@
   scene.add(sun);
   scene.add(sun.target);
 
-  const fill = new THREE.DirectionalLight(0x88aaff, 0.25);
+  const fill = new THREE.DirectionalLight(0xaaccff, 0.4);
   fill.position.set(-20, 20, -10);
   scene.add(fill);
 
-  const lavaLight = new THREE.PointLight(0xff5522, 3, 35);
-  scene.add(lavaLight);
-
-  // ---------- Stars ----------
-  const starCount = 2500;
-  const starGeo = new THREE.BufferGeometry();
-  const starPos = new Float32Array(starCount * 3);
-  for (let i = 0; i < starCount; i++) {
-    const r = 80 + Math.random() * 120;
-    const t = Math.random() * Math.PI * 2;
-    const p = Math.acos(2 * Math.random() - 1);
-    starPos[i*3]   = r * Math.sin(p) * Math.cos(t);
-    starPos[i*3+1] = r * Math.cos(p) + 25;
-    starPos[i*3+2] = r * Math.sin(p) * Math.sin(t);
-  }
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-  const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
-    color: 0xffffff, size: 0.5, sizeAttenuation: true,
-    transparent: true, opacity: 0.9
-  }));
-  scene.add(stars);
-
-  function addPlanet(x, y, z, r, color) {
-    const m = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 24, 16),
-      new THREE.MeshBasicMaterial({ color })
-    );
-    m.position.set(x, y, z);
-    scene.add(m);
-  }
-  addPlanet(-60, 40, -80, 8, 0xaa3366);
-  addPlanet(70, 60, -100, 12, 0x66cc99);
-  addPlanet(-30, 70, 90, 6, 0xffcc66);
-
-  // ---------- Lava ----------
-  const LAVA_Y = -12;
-  const lavaGeo = new THREE.PlaneGeometry(500, 500, 60, 60);
-  lavaGeo.rotateX(-Math.PI / 2);
-  const lavaMat = new THREE.MeshStandardMaterial({
-    color: 0xff2200, emissive: 0xff4400, emissiveIntensity: 1.6,
-    roughness: 0.5, metalness: 0
+  // ---------- Gradient sky dome ----------
+  const skyGeo = new THREE.SphereGeometry(280, 28, 18);
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    uniforms: {
+      topColor:    { value: new THREE.Color(0x3a80c8) },
+      midColor:    { value: new THREE.Color(0x88ccff) },
+      bottomColor: { value: new THREE.Color(0xe2f0ff) }
+    },
+    vertexShader: `
+      varying vec3 vWP;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWP = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `
+      uniform vec3 topColor;
+      uniform vec3 midColor;
+      uniform vec3 bottomColor;
+      varying vec3 vWP;
+      void main() {
+        float h = normalize(vWP).y;
+        vec3 col = (h > 0.0)
+          ? mix(midColor, topColor, smoothstep(0.0, 0.7, h))
+          : mix(midColor, bottomColor, -h);
+        gl_FragColor = vec4(col, 1.0);
+      }`
   });
-  const lava = new THREE.Mesh(lavaGeo, lavaMat);
-  lava.position.y = LAVA_Y;
-  scene.add(lava);
+  const sky = new THREE.Mesh(skyGeo, skyMat);
+  scene.add(sky);
 
-  const lavaGlow = new THREE.Mesh(
-    new THREE.PlaneGeometry(500, 500),
-    new THREE.MeshBasicMaterial({ color: 0x551100, side: THREE.DoubleSide })
+  // ---------- Sun disc (visual only — the light is the directional sun above) ----------
+  const sunDisc = new THREE.Mesh(
+    new THREE.SphereGeometry(4, 24, 16),
+    new THREE.MeshBasicMaterial({ color: 0xfff5c0 })
   );
-  lavaGlow.rotation.x = -Math.PI / 2;
-  lavaGlow.position.y = LAVA_Y - 1;
-  scene.add(lavaGlow);
+  sunDisc.position.set(45, 55, -80);
+  scene.add(sunDisc);
+
+  // ---------- Cloud system (replaces the lava) ----------
+  const FALL_Y = -12; // death threshold (animal puffs away if it falls this low)
+  const LAVA_Y = FALL_Y; // legacy alias used by older code paths
+  const clouds = [];
+
+  function makeCloudGroup() {
+    const g = new THREE.Group();
+    const n = 3 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < n; i++) {
+      const r = 0.9 + Math.random() * 1.1;
+      const puff = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 12, 8),
+        new THREE.MeshStandardMaterial({
+          color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.35,
+          roughness: 0.95, transparent: true, opacity: 0.92
+        })
+      );
+      puff.position.set(
+        (Math.random() - 0.5) * 3.6,
+        (Math.random() - 0.5) * 0.7,
+        (Math.random() - 0.5) * 2.6
+      );
+      puff.scale.y = 0.55 + Math.random() * 0.3;
+      g.add(puff);
+    }
+    return g;
+  }
+  function spawnCloud(x, y, z, vx) {
+    const g = makeCloudGroup();
+    g.position.set(x, y, z);
+    scene.add(g);
+    clouds.push({ group: g, vx });
+  }
+  // Cloud sea around the fall plane
+  for (let i = 0; i < 45; i++) {
+    spawnCloud(
+      (Math.random() - 0.5) * 130,
+      FALL_Y + (Math.random() - 0.5) * 5,
+      (Math.random() - 0.5) * 70,
+      -(0.5 + Math.random() * 1.6)
+    );
+  }
+  // Ambient higher clouds for atmosphere
+  for (let i = 0; i < 22; i++) {
+    spawnCloud(
+      (Math.random() - 0.5) * 130,
+      8 + Math.random() * 18,
+      (Math.random() - 0.5) * 80,
+      -(0.2 + Math.random() * 0.7)
+    );
+  }
 
   // ---------- Halo (appears during the heaven-ascent death animation) ----------
   const haloGeo = new THREE.TorusGeometry(0.55, 0.085, 10, 24);
@@ -1450,8 +1488,9 @@
     }
   }
   function lavaDeath() {
-    burst(player.pos.x, LAVA_Y + 1, player.pos.z, 0xff5522, 24, { speed: 5, gravity: 18, upward: true });
-    burst(player.pos.x, LAVA_Y + 1, player.pos.z, 0xffaa33, 16, { speed: 7, gravity: 14, upward: true });
+    // Cloud poof on impact with the cloud sea
+    burst(player.pos.x, FALL_Y + 1, player.pos.z, 0xffffff, 26, { speed: 5, gravity: -2, upward: true, life: 1.1 });
+    burst(player.pos.x, FALL_Y + 1, player.pos.z, 0xdde8ff, 18, { speed: 7, gravity: -1, upward: true, life: 1.3 });
   }
   function spikeDeath() {
     sfx.hitSpike();
@@ -1486,22 +1525,22 @@
         const burnProg = deathTimer / 1.2;
         animalGroup.scale.setScalar(1.0 - burnProg * 0.35);
 
-        // continuous flame jets
-        if (Math.random() < 0.7) {
-          const colors = [0xff4400, 0xffaa00, 0xff6600, 0xffdd33];
+        // fluffy cloud puffs — the animal dissolves into a cloud
+        if (Math.random() < 0.75) {
+          const colors = [0xffffff, 0xeef5ff, 0xdde8ff, 0xf5f8ff];
           burst(
-            dp.x + (Math.random() - 0.5) * 0.7,
-            dp.y + 0.2 + Math.random() * 0.9,
-            dp.z + (Math.random() - 0.5) * 0.7,
+            dp.x + (Math.random() - 0.5) * 0.8,
+            dp.y + 0.2 + Math.random() * 1.0,
+            dp.z + (Math.random() - 0.5) * 0.8,
             colors[Math.floor(Math.random() * colors.length)],
             3,
-            { speed: 2.8, gravity: -3, upward: true, life: 0.55 }
+            { speed: 2.2, gravity: -3, upward: true, life: 0.9 }
           );
         }
-        // smoke puffs
+        // wispy trailing puffs
         if (Math.random() < 0.35) {
-          burst(dp.x, dp.y + 1.0, dp.z, 0x222222, 2,
-            { speed: 1.4, gravity: -4, upward: true, life: 1.0 });
+          burst(dp.x, dp.y + 1.0, dp.z, 0xc8d8ee, 2,
+            { speed: 1.4, gravity: -4, upward: true, life: 1.2 });
         }
       } else if (deathTimer < 3.4) {
         // ---- Phase 2: ASCEND TO HEAVEN ----
@@ -1702,20 +1741,17 @@
     spawnAhead();
   }
 
-  // ---------- Lava animation ----------
-  const lavaPos = lavaGeo.attributes.position.array;
-  function animateLava(t) {
-    for (let i = 0; i < lavaPos.length; i += 3) {
-      const x = lavaPos[i], z = lavaPos[i+2];
-      lavaPos[i+1] = Math.sin(x * 0.18 + t * 1.6) * 0.45
-                   + Math.cos(z * 0.21 + t * 1.2) * 0.45
-                   + Math.sin((x + z) * 0.12 + t * 2.1) * 0.2;
+  // ---------- Cloud drift ----------
+  function animateClouds(dt) {
+    const px = player.pos.x;
+    for (const c of clouds) {
+      c.group.position.x += c.vx * dt;
+      // when a cloud drifts too far behind the player, recycle it ahead
+      if (c.group.position.x < px - 65) {
+        c.group.position.x = px + 60 + Math.random() * 40;
+        c.group.position.z = (Math.random() - 0.5) * 70;
+      }
     }
-    lavaGeo.attributes.position.needsUpdate = true;
-    lavaGeo.computeVertexNormals();
-    lavaMat.emissiveIntensity = 1.5 + Math.sin(t * 3) * 0.3;
-    lava.position.x = player.pos.x;
-    lavaGlow.position.x = player.pos.x;
   }
 
   // ---------- Camera ----------
@@ -1741,7 +1777,6 @@
       shakeAmt *= 0.90;
     } else shakeAmt = 0;
 
-    lavaLight.position.set(player.pos.x, LAVA_Y + 1.5, player.pos.z);
     sun.position.set(player.pos.x + 15, 40, player.pos.z + 15);
     sun.target.position.set(player.pos.x, 0, player.pos.z);
     sun.target.updateMatrixWorld();
@@ -1752,11 +1787,10 @@
   function loop() {
     const dt = Math.min(clock.getDelta(), 1/30);
     const t = clock.elapsedTime;
-    animateLava(t);
+    animateClouds(dt);
     update(dt, t);
     updateParticles(dt);
     updateCamera(dt);
-    stars.rotation.y += dt * 0.003;
     if (flashTimer > 0) {
       flashTimer -= dt;
       if (flashTimer <= 0) levelFlashEl.classList.remove('show');
