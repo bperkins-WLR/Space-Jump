@@ -783,18 +783,23 @@
   const PALETTE = [0x44aaff, 0xff44aa, 0xffaa44, 0x88ff44, 0xaa44ff, 0xff8844, 0x44ffaa];
 
   function difficultyAt(x) {
-    // No spikes anywhere — challenge is precision jumping + chasing the moving coins.
-    if (x < 30)  return { lvl: 1, wMin: 3.0, wMax: 4.6, gMin: 2.2, gMax: 3.8, yVar: 1.4, spikeChance: 0, spikeMax: 0 };
-    if (x < 80)  return { lvl: 2, wMin: 2.5, wMax: 4.0, gMin: 2.5, gMax: 4.2, yVar: 2.0, spikeChance: 0, spikeMax: 0 };
-    if (x < 160) return { lvl: 3, wMin: 2.1, wMax: 3.4, gMin: 2.7, gMax: 4.5, yVar: 2.5, spikeChance: 0, spikeMax: 0 };
-    if (x < 260) return { lvl: 4, wMin: 1.8, wMax: 2.9, gMin: 3.0, gMax: 4.9, yVar: 2.8, spikeChance: 0, spikeMax: 0 };
-    if (x < 400) return { lvl: 5, wMin: 1.6, wMax: 2.5, gMin: 3.1, gMax: 5.2, yVar: 3.0, spikeChance: 0, spikeMax: 0 };
-    if (x < 560) return { lvl: 6, wMin: 1.4, wMax: 2.2, gMin: 3.2, gMax: 5.4, yVar: 3.0, spikeChance: 0, spikeMax: 0 };
-    if (x < 740) return { lvl: 7, wMin: 1.25, wMax: 2.0, gMin: 3.3, gMax: 5.6, yVar: 3.1, spikeChance: 0, spikeMax: 0 };
+    // wMin/wMax = X width range. dMin/dMax = Z depth range.
+    // zVar = how far platforms drift left/right (Z offset).
+    // As levels rise: tiles shrink AND drift further side-to-side, forcing strafe play.
+    if (x < 30)  return { lvl: 1, wMin: 3.0, wMax: 4.6, dMin: 3.4, dMax: 4.2, gMin: 2.2, gMax: 3.8, yVar: 1.4, zVar: 0.0, spikeChance: 0, spikeMax: 0 };
+    if (x < 80)  return { lvl: 2, wMin: 2.4, wMax: 4.0, dMin: 2.8, dMax: 3.8, gMin: 2.5, gMax: 4.2, yVar: 2.0, zVar: 0.9, spikeChance: 0, spikeMax: 0 };
+    if (x < 160) return { lvl: 3, wMin: 2.0, wMax: 3.4, dMin: 2.3, dMax: 3.3, gMin: 2.7, gMax: 4.5, yVar: 2.5, zVar: 1.5, spikeChance: 0, spikeMax: 0 };
+    if (x < 260) return { lvl: 4, wMin: 1.7, wMax: 2.9, dMin: 2.0, dMax: 2.8, gMin: 3.0, gMax: 4.9, yVar: 2.8, zVar: 2.1, spikeChance: 0, spikeMax: 0 };
+    if (x < 400) return { lvl: 5, wMin: 1.5, wMax: 2.5, dMin: 1.7, dMax: 2.4, gMin: 3.1, gMax: 5.2, yVar: 3.0, zVar: 2.6, spikeChance: 0, spikeMax: 0 };
+    if (x < 560) return { lvl: 6, wMin: 1.35, wMax: 2.2, dMin: 1.55, dMax: 2.1, gMin: 3.2, gMax: 5.4, yVar: 3.0, zVar: 3.0, spikeChance: 0, spikeMax: 0 };
+    if (x < 740) return { lvl: 7, wMin: 1.2, wMax: 2.0, dMin: 1.45, dMax: 2.0, gMin: 3.3, gMax: 5.6, yVar: 3.1, zVar: 3.4, spikeChance: 0, spikeMax: 0 };
     const band = Math.floor((x - 740) / 200);
     const wMin = Math.max(1.05, 1.15 - band * 0.03);
     const wMax = Math.max(1.5,  1.85 - band * 0.05);
-    return       { lvl: 8 + band, wMin, wMax, gMin: 3.4, gMax: 5.8, yVar: 3.2, spikeChance: 0, spikeMax: 0 };
+    const dMin = Math.max(1.35, 1.40 - band * 0.02);
+    const dMax = Math.max(1.8,  1.95 - band * 0.03);
+    const zVar = Math.min(4.2, 3.6 + band * 0.15);
+    return       { lvl: 8 + band, wMin, wMax, dMin, dMax, gMin: 3.4, gMax: 5.8, yVar: 3.2, zVar, spikeChance: 0, spikeMax: 0 };
   }
 
   // spikes shared materials
@@ -982,6 +987,19 @@
 
   let furthestX = 0;
   let prevSpawnY = 0;
+  let prevSpawnZ = 0;
+
+  // Pick a Z offset that biases away from the previous platform so the player
+  // is forced to weave left/right instead of plowing straight forward.
+  function pickZ(prevZ, zVar) {
+    if (zVar < 0.1) return 0;
+    const mag = (0.45 + Math.random() * 0.55) * zVar;
+    // 70% chance to flip to the opposite side of the previous platform
+    const side = Math.random() < 0.7
+      ? -Math.sign(prevZ || (Math.random() < 0.5 ? 1 : -1))
+      : Math.sign(prevZ || (Math.random() < 0.5 ? 1 : -1));
+    return side * mag;
+  }
 
   function buildInitial() {
     for (const p of platforms) {
@@ -1006,17 +1024,20 @@
     addPlatform(0, 0, 0, 8, 0.6, 5, 0x44ffaa);
     let x = 6;
     prevSpawnY = 0;
+    prevSpawnZ = 0;
     for (let i = 0; i < 8; i++) {
       const diff = difficultyAt(x);
       const w = diff.wMin + Math.random() * (diff.wMax - diff.wMin);
+      const d = diff.dMin + Math.random() * (diff.dMax - diff.dMin);
       const gap = diff.gMin + Math.random() * (diff.gMax - diff.gMin);
       x += w / 2 + gap;
       const dy = (Math.random() - 0.5) * diff.yVar;
       let y = prevSpawnY + dy;
       y = Math.max(-1.5, Math.min(4, y));
       prevSpawnY = y;
-      const p = addPlatform(x, y, 0, w, 0.6, 3.5, PALETTE[Math.floor(Math.random() * PALETTE.length)]);
-      if (i >= 2) maybeAddSpikes(p, diff);
+      const z = pickZ(prevSpawnZ, diff.zVar);
+      prevSpawnZ = z;
+      const p = addPlatform(x, y, z, w, 0.6, d, PALETTE[Math.floor(Math.random() * PALETTE.length)]);
       maybeAddCoins(p, diff);
       maybeAddMotion(p, diff);
       x += w / 2;
@@ -1028,14 +1049,16 @@
     while (furthestX < player.pos.x + 70) {
       const diff = difficultyAt(furthestX);
       const w = diff.wMin + Math.random() * (diff.wMax - diff.wMin);
+      const d = diff.dMin + Math.random() * (diff.dMax - diff.dMin);
       const gap = diff.gMin + Math.random() * (diff.gMax - diff.gMin);
       furthestX += w / 2 + gap;
       const dy = (Math.random() - 0.5) * diff.yVar;
       let y = prevSpawnY + dy;
       y = Math.max(-1.5, Math.min(4, y));
       prevSpawnY = y;
-      const p = addPlatform(furthestX, y, 0, w, 0.6, 3.5, PALETTE[Math.floor(Math.random() * PALETTE.length)]);
-      maybeAddSpikes(p, diff);
+      const z = pickZ(prevSpawnZ, diff.zVar);
+      prevSpawnZ = z;
+      const p = addPlatform(furthestX, y, z, w, 0.6, d, PALETTE[Math.floor(Math.random() * PALETTE.length)]);
       maybeAddCoins(p, diff);
       maybeAddMotion(p, diff);
       furthestX += w / 2;
@@ -1209,8 +1232,10 @@
     animalGroup.rotation.set(0, player.facing, 0);
     animalGroup.position.copy(player.pos);
     prevSpawnY = 0;
+    prevSpawnZ = 0;
     buildInitial();
     prevSpawnY = platforms[platforms.length-1].y;
+    prevSpawnZ = platforms[platforms.length-1].z;
     score = 0;
     deathTimer = 0;
     currentLevel = 1;
