@@ -60,6 +60,12 @@
   }
   #overlay button:active { transform: translateY(1px); }
   #overlay.hidden { display: none; }
+  #overlay .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  #overlay button.secondary {
+    background: linear-gradient(#6cf, #36c);
+    color: #fff;
+    box-shadow: 0 0 20px rgba(80,160,255,0.5);
+  }
   #levelFlash {
     position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%);
     font-size: 64px; font-weight: 800; letter-spacing: 4px;
@@ -145,7 +151,10 @@
   <p class="kbd">Keys: W/↑ forward · A D strafe · SPACE to jump (hold for higher · tap again for double jump)</p>
   <p class="touchhint">On iPad: use the on-screen buttons. Tap JUMP twice for a double jump.</p>
   <p>Watch out for spikes. Collect coins. Difficulty ramps every level.</p>
-  <button id="startBtn">Start</button>
+  <div class="row">
+    <button id="startBtn">Start</button>
+    <button id="shuffleBtn" class="secondary" type="button">🎲 Shuffle Tiles</button>
+  </div>
   <p style="opacity:0.7;font-size:14px;margin-top:18px;">
     Tip: tap the Share icon in Safari → "Add to Home Screen" to play full-screen.
   </p>
@@ -779,6 +788,18 @@
   // Click overlay/start
   startBtn.addEventListener('click', () => { unlockAudio(); startGame(); });
   startBtn.addEventListener('touchend', e => { e.preventDefault(); unlockAudio(); startGame(); });
+
+  // Shuffle tiles button — re-rolls the platform layout on the title screen
+  const shuffleBtn = document.getElementById('shuffleBtn');
+  function shuffleTiles(e) {
+    if (e) e.preventDefault();
+    unlockAudio();
+    prevSpawnY = 0;
+    buildInitial();
+    sfx.coin();
+  }
+  shuffleBtn.addEventListener('click', shuffleTiles);
+  shuffleBtn.addEventListener('touchend', shuffleTiles);
   // Unlock audio on any first touch
   document.addEventListener('touchstart', unlockAudio, { once: true });
   document.addEventListener('click', unlockAudio, { once: true });
