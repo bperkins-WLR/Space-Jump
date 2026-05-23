@@ -703,16 +703,14 @@
   const PALETTE = [0x44aaff, 0xff44aa, 0xffaa44, 0x88ff44, 0xaa44ff, 0xff8844, 0x44ffaa];
 
   function difficultyAt(x) {
-    // Platforms steadily shrink. Spikes peak at L3, then phase out — by L6+
-    // there are NO spikes and the challenge is pure precision jumping on tiny tiles.
-    if (x < 30)  return { lvl: 1, wMin: 3.0, wMax: 4.6, gMin: 2.2, gMax: 3.8, yVar: 1.4, spikeChance: 0,    spikeMax: 0 };
-    if (x < 80)  return { lvl: 2, wMin: 2.5, wMax: 4.0, gMin: 2.5, gMax: 4.2, yVar: 2.0, spikeChance: 0.30, spikeMax: 1 };
-    if (x < 160) return { lvl: 3, wMin: 2.1, wMax: 3.4, gMin: 2.7, gMax: 4.5, yVar: 2.5, spikeChance: 0.50, spikeMax: 2 };
-    if (x < 260) return { lvl: 4, wMin: 1.8, wMax: 2.9, gMin: 3.0, gMax: 4.9, yVar: 2.8, spikeChance: 0.25, spikeMax: 1 };
-    if (x < 400) return { lvl: 5, wMin: 1.6, wMax: 2.5, gMin: 3.1, gMax: 5.2, yVar: 3.0, spikeChance: 0.08, spikeMax: 1 };
-    if (x < 560) return { lvl: 6, wMin: 1.4, wMax: 2.2, gMin: 3.2, gMax: 5.4, yVar: 3.0, spikeChance: 0,    spikeMax: 0 };
-    if (x < 740) return { lvl: 7, wMin: 1.25, wMax: 2.0, gMin: 3.3, gMax: 5.6, yVar: 3.1, spikeChance: 0,   spikeMax: 0 };
-    // L8+ keeps shrinking very slightly per band but nothing below ~1.05 — still landable
+    // No spikes anywhere — challenge is precision jumping + chasing the moving coins.
+    if (x < 30)  return { lvl: 1, wMin: 3.0, wMax: 4.6, gMin: 2.2, gMax: 3.8, yVar: 1.4, spikeChance: 0, spikeMax: 0 };
+    if (x < 80)  return { lvl: 2, wMin: 2.5, wMax: 4.0, gMin: 2.5, gMax: 4.2, yVar: 2.0, spikeChance: 0, spikeMax: 0 };
+    if (x < 160) return { lvl: 3, wMin: 2.1, wMax: 3.4, gMin: 2.7, gMax: 4.5, yVar: 2.5, spikeChance: 0, spikeMax: 0 };
+    if (x < 260) return { lvl: 4, wMin: 1.8, wMax: 2.9, gMin: 3.0, gMax: 4.9, yVar: 2.8, spikeChance: 0, spikeMax: 0 };
+    if (x < 400) return { lvl: 5, wMin: 1.6, wMax: 2.5, gMin: 3.1, gMax: 5.2, yVar: 3.0, spikeChance: 0, spikeMax: 0 };
+    if (x < 560) return { lvl: 6, wMin: 1.4, wMax: 2.2, gMin: 3.2, gMax: 5.4, yVar: 3.0, spikeChance: 0, spikeMax: 0 };
+    if (x < 740) return { lvl: 7, wMin: 1.25, wMax: 2.0, gMin: 3.3, gMax: 5.6, yVar: 3.1, spikeChance: 0, spikeMax: 0 };
     const band = Math.floor((x - 740) / 200);
     const wMin = Math.max(1.05, 1.15 - band * 0.03);
     const wMax = Math.max(1.5,  1.85 - band * 0.05);
@@ -767,22 +765,38 @@
     color: 0xffd633, emissive: 0xffaa00, emissiveIntensity: 0.9,
     roughness: 0.25, metalness: 0.9
   });
-  function addCoin(x, y, z) {
+  function addCoin(p, phaseOffset) {
     const m = new THREE.Mesh(coinGeo, coinMat);
     m.rotation.x = Math.PI / 2;
-    m.position.set(x, y, z);
+    const baseX = p.x;
+    const baseY = p.y + p.hh + 0.9;
+    const baseZ = p.z;
+    m.position.set(baseX, baseY, baseZ);
     m.castShadow = true;
     scene.add(m);
-    coins.push({ mesh: m, x, y, z, baseY: y, collected: false });
+    // motion amplitudes are clamped to platform size minus a margin so the coin
+    // stays visually on the tile but the player has to move to grab it
+    const maxAmpX = Math.max(0.05, p.w / 2 - 0.4);
+    const maxAmpZ = Math.max(0.3,  p.d / 2 - 0.4);
+    const ampX = maxAmpX * (0.4 + Math.random() * 0.6);
+    const ampZ = maxAmpZ * (0.5 + Math.random() * 0.5);
+    coins.push({
+      mesh: m,
+      x: baseX, y: baseY, z: baseZ,
+      baseX, baseY, baseZ,
+      ampX, ampZ,
+      freqX: 0.7 + Math.random() * 0.8,
+      freqZ: 0.5 + Math.random() * 0.7,
+      phase: phaseOffset * Math.PI * 2 + Math.random() * 0.5,
+      bobPhase: Math.random() * Math.PI * 2,
+      collected: false
+    });
   }
   function maybeAddCoins(p, diff) {
-    const chance = 0.45 + Math.min(0.35, diff.lvl * 0.05);
+    const chance = 0.55 + Math.min(0.3, diff.lvl * 0.05);
     if (Math.random() > chance) return;
-    const n = Math.random() < 0.2 ? 3 : (Math.random() < 0.5 ? 2 : 1);
-    const baseX = p.x + (Math.random() - 0.5) * (p.w * 0.35);
-    for (let i = 0; i < n; i++) {
-      addCoin(baseX + (i - (n-1)/2) * 0.7, p.y + p.hh + 0.9, p.z);
-    }
+    const n = Math.random() < 0.25 ? 3 : (Math.random() < 0.55 ? 2 : 1);
+    for (let i = 0; i < n; i++) addCoin(p, i / n);
   }
 
   // particles
@@ -1287,8 +1301,13 @@
     }
     for (const c of coins) {
       if (c.collected) continue;
+      // drift around on top of the platform — Lissajous-style pattern
+      c.x = c.baseX + Math.sin(t * c.freqX + c.phase) * c.ampX;
+      c.z = c.baseZ + Math.cos(t * c.freqZ + c.phase * 1.3) * c.ampZ;
+      c.mesh.position.x = c.x;
+      c.mesh.position.z = c.z;
+      c.mesh.position.y = c.baseY + Math.sin(t * 3 + c.bobPhase) * 0.12;
       c.mesh.rotation.z += dt * 3.5;
-      c.mesh.position.y = c.baseY + Math.sin(t * 3 + c.x * 0.5) * 0.12;
     }
 
     if (player.pos.y < LAVA_Y + 0.5) { lavaDeath(); endGame(); }
