@@ -340,6 +340,17 @@
   lavaGlow.position.y = LAVA_Y - 1;
   scene.add(lavaGlow);
 
+  // ---------- Halo (appears during the heaven-ascent death animation) ----------
+  const haloGeo = new THREE.TorusGeometry(0.55, 0.085, 10, 24);
+  const haloMat = new THREE.MeshStandardMaterial({
+    color: 0xffe680, emissive: 0xffcc33, emissiveIntensity: 1.6,
+    roughness: 0.3, metalness: 0.7, transparent: true, opacity: 0
+  });
+  const halo = new THREE.Mesh(haloGeo, haloMat);
+  halo.rotation.x = Math.PI / 2;
+  halo.visible = false;
+  scene.add(halo);
+
   // ---------- Animals ----------
   function mat(color, opts = {}) {
     const m = new THREE.MeshStandardMaterial({
@@ -1231,6 +1242,9 @@
     player.facing = Math.PI / 2;
     animalGroup.rotation.set(0, player.facing, 0);
     animalGroup.position.copy(player.pos);
+    animalGroup.scale.setScalar(1);
+    halo.visible = false;
+    halo.material.opacity = 0;
     prevSpawnY = 0;
     prevSpawnZ = 0;
     buildInitial();
@@ -1255,6 +1269,12 @@
     started = false;
     deathTimer = 0;
     shakeAmt = 0.6;
+    // Park the death scene just above the lava so the burn happens at the surface
+    player.deathPos = {
+      x: player.pos.x,
+      y: Math.max(player.pos.y, LAVA_Y + 1.4),
+      z: player.pos.z
+    };
     sfx.death();
     if (score > best) {
       best = score;
@@ -1271,20 +1291,84 @@
     burst(player.pos.x, player.pos.y + 0.6, player.pos.z, 0xff3333, 18, { speed: 5, gravity: 12 });
   }
   function showGameOverOverlay() {
-    titleEl.textContent = 'YOU FELL IN';
+    titleEl.textContent = '🕊️ ANIMAL HEAVEN';
     subtitleEl.textContent = `Final score: ${score}   ·   Best: ${best}`;
-    startBtn.textContent = 'Play again';
+    startBtn.textContent = 'Try again';
     overlay.classList.remove('hidden');
   }
 
   // ---------- Update ----------
   function update(dt, t) {
     if (player.dead) {
-      animalGroup.rotation.x += dt * 5;
-      animalGroup.rotation.z += dt * 7;
-      animalGroup.position.y -= 6 * dt;
       deathTimer += dt;
-      if (deathTimer > 1.5 && overlay.classList.contains('hidden')) showGameOverOverlay();
+      const dp = player.deathPos;
+
+      if (deathTimer < 1.2) {
+        // ---- Phase 1: BURN UP ----
+        // Animal hovers and trembles at the lava surface while fire engulfs it.
+        const shake = 0.09;
+        animalGroup.position.set(
+          dp.x + (Math.random() - 0.5) * shake,
+          dp.y + (Math.random() - 0.5) * shake,
+          dp.z + (Math.random() - 0.5) * shake
+        );
+        animalGroup.rotation.x = (Math.random() - 0.5) * 0.3;
+        animalGroup.rotation.z = (Math.random() - 0.5) * 0.3;
+        const burnProg = deathTimer / 1.2;
+        animalGroup.scale.setScalar(1.0 - burnProg * 0.35);
+
+        // continuous flame jets
+        if (Math.random() < 0.7) {
+          const colors = [0xff4400, 0xffaa00, 0xff6600, 0xffdd33];
+          burst(
+            dp.x + (Math.random() - 0.5) * 0.7,
+            dp.y + 0.2 + Math.random() * 0.9,
+            dp.z + (Math.random() - 0.5) * 0.7,
+            colors[Math.floor(Math.random() * colors.length)],
+            3,
+            { speed: 2.8, gravity: -3, upward: true, life: 0.55 }
+          );
+        }
+        // smoke puffs
+        if (Math.random() < 0.35) {
+          burst(dp.x, dp.y + 1.0, dp.z, 0x222222, 2,
+            { speed: 1.4, gravity: -4, upward: true, life: 1.0 });
+        }
+      } else if (deathTimer < 3.4) {
+        // ---- Phase 2: ASCEND TO HEAVEN ----
+        const ascendT = (deathTimer - 1.2) / 2.2;
+        const ease = 1 - Math.pow(1 - ascendT, 2);
+        animalGroup.rotation.set(0, player.facing, 0);
+        animalGroup.scale.setScalar(0.7 + ease * 0.5);
+        animalGroup.position.set(dp.x, dp.y + ease * 16, dp.z);
+
+        halo.visible = true;
+        halo.position.set(
+          animalGroup.position.x,
+          animalGroup.position.y + 1.95,
+          animalGroup.position.z
+        );
+        halo.material.opacity = Math.min(1, ascendT * 3);
+        halo.rotation.z += dt * 1.4;
+
+        // sparkle trail beneath the rising animal
+        if (Math.random() < 0.55) {
+          burst(
+            animalGroup.position.x + (Math.random() - 0.5) * 1.4,
+            animalGroup.position.y - 0.4 + (Math.random() - 0.5) * 0.6,
+            animalGroup.position.z + (Math.random() - 0.5) * 1.4,
+            Math.random() < 0.5 ? 0xffeecc : 0xfff5b0,
+            3, { speed: 1.6, gravity: -1, life: 1.1 }
+          );
+        }
+        // occasional gold-star bursts around the animal
+        if (Math.random() < 0.18) {
+          burst(animalGroup.position.x, animalGroup.position.y + 0.4, animalGroup.position.z,
+            0xffcc33, 5, { speed: 4, gravity: 3, upward: true, life: 0.9 });
+        }
+      }
+
+      if (deathTimer > 3.0 && overlay.classList.contains('hidden')) showGameOverOverlay();
       return;
     }
     if (!started) return;
@@ -1453,14 +1537,19 @@
 
   // ---------- Camera ----------
   function updateCamera(dt) {
-    const tx = player.pos.x - 8;
-    const ty = player.pos.y + 5;
-    const tz = player.pos.z;
+    // During death we follow the burning/ascending animal, not the (now frozen) player.
+    const followAnimal = player.dead && animalGroup;
+    const ax = followAnimal ? animalGroup.position.x : player.pos.x;
+    const ay = followAnimal ? animalGroup.position.y : player.pos.y;
+    const az = followAnimal ? animalGroup.position.z : player.pos.z;
+    const tx = ax - 8;
+    const ty = ay + 5;
+    const tz = az;
     const s = Math.min(1, 5 * dt);
     camera.position.x += (tx - camera.position.x) * s;
     camera.position.y += (ty - camera.position.y) * s;
     camera.position.z += (tz - camera.position.z) * s;
-    camera.lookAt(player.pos.x + 2, player.pos.y + 0.8, player.pos.z);
+    camera.lookAt(ax + 2, ay + 0.8, az);
 
     if (shakeAmt > 0.001) {
       camera.position.x += (Math.random() - 0.5) * shakeAmt;
