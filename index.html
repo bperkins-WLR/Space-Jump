@@ -66,6 +66,27 @@
     color: #fff;
     box-shadow: 0 0 20px rgba(80,160,255,0.5);
   }
+  .animal-row {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    justify-content: center; max-width: 540px; margin: 4px auto 6px;
+  }
+  .animal-btn {
+    background: rgba(255,255,255,0.12);
+    border: 2px solid rgba(255,255,255,0.25);
+    color: #fff; padding: 8px 12px; border-radius: 12px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    min-width: 70px; font-family: inherit;
+    transition: transform 0.1s, box-shadow 0.2s, border-color 0.2s, background 0.2s;
+  }
+  .animal-btn .emoji { font-size: 32px; line-height: 1; }
+  .animal-btn .name  { font-size: 13px; opacity: 0.9; }
+  .animal-btn:active { transform: scale(0.95); }
+  .animal-btn.selected {
+    background: linear-gradient(rgba(255,200,120,0.6), rgba(255,120,80,0.5));
+    border-color: rgba(255,220,180,0.85);
+    box-shadow: 0 0 18px rgba(255,150,80,0.55);
+  }
   #levelFlash {
     position: fixed; top: 28%; left: 50%; transform: translate(-50%, -50%) scale(0.7);
     font-size: 60px; font-weight: 800; letter-spacing: 3px;
@@ -151,13 +172,21 @@
 <div id="overlay">
   <h1 id="title">SPACE JUMPER 3D</h1>
   <p id="subtitle">Hop the animal across floating platforms in a sea of fluffy clouds.</p>
-  <p id="animalName" style="font-size:24px;margin:6px 0 12px;text-shadow:0 0 12px #6cf;">🦊 Fox</p>
+  <p style="font-size:16px;margin:10px 0 6px;opacity:0.9;">Choose your animal:</p>
+  <div id="animalPicker" class="animal-row">
+    <button class="animal-btn" data-animal="0" type="button"><span class="emoji">🦊</span><span class="name">Fox</span></button>
+    <button class="animal-btn" data-animal="1" type="button"><span class="emoji">🐱</span><span class="name">Cat</span></button>
+    <button class="animal-btn" data-animal="2" type="button"><span class="emoji">🐰</span><span class="name">Bunny</span></button>
+    <button class="animal-btn" data-animal="3" type="button"><span class="emoji">🐻</span><span class="name">Bear</span></button>
+    <button class="animal-btn" data-animal="4" type="button"><span class="emoji">🐼</span><span class="name">Panda</span></button>
+    <button class="animal-btn" data-animal="5" type="button"><span class="emoji">🐶</span><span class="name">Dog</span></button>
+  </div>
   <p class="kbd">Keys: W/↑ forward · A D strafe · SPACE to jump (hold for higher · tap again for double jump)</p>
   <p class="touchhint">On iPad: use the on-screen buttons. Tap JUMP twice for a double jump.</p>
   <p>Collect golden rings. Difficulty ramps every level.</p>
   <div class="row">
     <button id="startBtn">Start</button>
-    <button id="shuffleBtn" class="secondary" type="button">🎲 Shuffle Animal &amp; Tiles</button>
+    <button id="shuffleBtn" class="secondary" type="button">🎲 Shuffle Tiles</button>
   </div>
   <p style="opacity:0.7;font-size:14px;margin-top:18px;">
     Tip: tap the Share icon in Safari → "Add to Home Screen" to play full-screen.
@@ -945,10 +974,14 @@
   }
 
   const animalBuilders = [buildFox, buildCat, buildBunny, buildBear, buildPanda, buildDog];
-  let animalIdx = Math.floor(Math.random() * animalBuilders.length);
+  // Use the user's persisted choice (defaults to Fox on first load)
+  const _storedAnimal = storage.get('spaceJumper3DAnimal');
+  let animalIdx = (_storedAnimal !== null && !isNaN(+_storedAnimal))
+    ? Math.max(0, Math.min(animalBuilders.length - 1, +_storedAnimal))
+    : 0;
   let animalGroup = null;
   let legs = [], ears = [], tailGrp = null;
-  const animalNameEl = document.getElementById('animalName');
+  const animalBtnList = document.querySelectorAll('.animal-btn');
 
   function setAnimal(idx) {
     if (animalGroup) {
@@ -965,8 +998,21 @@
     animalGroup.position.copy(player.pos);
     animalGroup.rotation.y = player.facing;
     scene.add(animalGroup);
-    if (animalNameEl) animalNameEl.textContent = `${a.emoji} ${a.name}`;
+    // Update picker highlight so the chosen animal is always visually marked
+    animalBtnList.forEach(b => b.classList.toggle('selected', +b.dataset.animal === animalIdx));
   }
+
+  // Picker button click handlers — remember the user's deliberate choice
+  animalBtnList.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      unlockAudio();
+      const idx = +btn.dataset.animal;
+      setAnimal(idx);
+      storage.set('spaceJumper3DAnimal', idx);
+      sfx.coin();
+    });
+  });
 
   // ---------- Player state ----------
   const player = {
@@ -1364,7 +1410,6 @@
     unlockAudio();
     prevSpawnY = 0;
     buildInitial();
-    setAnimal(animalIdx + 1);
     sfx.coin();
   }
   shuffleBtn.addEventListener('click', shuffleTiles);
@@ -1734,7 +1779,6 @@
       levelEl.textContent = lvl;
       flashLevel(passed, lvl);
       sfx.levelup();
-      setAnimal(animalIdx + 1);
       confetti(player.pos.x, player.pos.y + 0.8, player.pos.z);
     }
 
