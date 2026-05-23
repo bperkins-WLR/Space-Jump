@@ -755,7 +755,9 @@
       el.classList.add('pressed');
       if (code === 'Space') {
         if (!keys[code]) { jumpPressed = true; jumpHeld = true; }
-        if (!overlay.classList.contains('hidden') === false) startGame();
+        // Only start the game when the overlay is actually visible — the
+        // dedicated Start button handles its own touch event.
+        if (!overlay.classList.contains('hidden')) startGame();
       }
       keys[code] = true;
     };
