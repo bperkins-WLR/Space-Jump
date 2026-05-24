@@ -1898,6 +1898,7 @@
       player.powerups[t].until = 0;
     }
     if (activePowersEl) activePowersEl.innerHTML = '';
+    player.flipT = 0;
   }
   function startGame() {
     reset();
@@ -2111,6 +2112,12 @@
         player.jumpBuffer = 0;
         sfx.djump();
         burst(player.pos.x, player.pos.y + 0.4, player.pos.z, 0x88ccff, 10, { speed: 3, gravity: 2 });
+        // Trigger a full somersault — alternate backflip / barrel spin for variety
+        player.flipDur = 0.55;
+        player.flipT   = player.flipDur;
+        player.flipKind = (player.jumpsLeft === 0)
+          ? (Math.random() < 0.5 ? 'back' : 'spin')
+          : 'back';
       }
     }
     if (!jumpHeld && player.vel.y > 6) player.vel.y = 6;
@@ -2148,9 +2155,25 @@
     player.facing += d * Math.min(1, 14 * dt);
 
     animalGroup.position.copy(player.pos);
-    animalGroup.rotation.y = player.facing;
-    animalGroup.rotation.x = 0;
-    animalGroup.rotation.z = -player.vel.z * 0.04;
+    // Double-jump somersault: rotate fully once over `flipDur` seconds
+    if (player.flipT > 0 && !player.onGround) {
+      player.flipT -= dt;
+      const prog = 1 - Math.max(0, player.flipT) / player.flipDur;
+      if (player.flipKind === 'spin') {
+        animalGroup.rotation.y = player.facing + prog * Math.PI * 2;
+        animalGroup.rotation.x = 0;
+      } else {
+        // backflip — rotates head-over-heels backwards while airborne
+        animalGroup.rotation.x = -prog * Math.PI * 2;
+        animalGroup.rotation.y = player.facing;
+      }
+      animalGroup.rotation.z = -player.vel.z * 0.04;
+    } else {
+      player.flipT = 0;
+      animalGroup.rotation.y = player.facing;
+      animalGroup.rotation.x = 0;
+      animalGroup.rotation.z = -player.vel.z * 0.04;
+    }
 
     const sp = Math.hypot(player.vel.x, player.vel.z);
     const running = player.onGround && sp > 1;
