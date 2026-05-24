@@ -97,6 +97,28 @@
     transition: opacity 0.25s, transform 0.4s cubic-bezier(.34,1.56,.64,1);
   }
   #levelFlash.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #activePowers {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 56px);
+    left: calc(env(safe-area-inset-left, 0px) + 12px);
+    display: flex; gap: 6px; z-index: 11;
+    pointer-events: none;
+  }
+  #activePowers .chip {
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.3);
+    padding: 4px 8px;
+    border-radius: 14px;
+    font-size: 14px;
+    color: #fff;
+    text-shadow: 0 0 4px #000;
+    backdrop-filter: blur(2px);
+  }
+  #activePowers .chip.magnet     { box-shadow: 0 0 12px rgba(255, 60, 80, 0.6); }
+  #activePowers .chip.slowmo     { box-shadow: 0 0 12px rgba(100, 130, 255, 0.6); }
+  #activePowers .chip.glider     { box-shadow: 0 0 12px rgba(220, 230, 255, 0.7); }
+  #activePowers .chip.shield     { box-shadow: 0 0 12px rgba(255, 200, 60, 0.7); }
+  #activePowers .chip.triplejump { box-shadow: 0 0 12px rgba(80, 255, 130, 0.6); }
 
   /* ---------- Touch controls ---------- */
   #touch {
@@ -157,6 +179,7 @@
 </head>
 <body>
 <div id="hud">Level: <span id="level">1</span> &nbsp;·&nbsp; Score: <span id="score">0</span> &nbsp;·&nbsp; <span style="color:#ffd633;">⊙</span> <span id="coins">0</span> &nbsp;·&nbsp; Best: <span id="best">0</span></div>
+<div id="activePowers"></div>
 <div id="levelFlash"></div>
 
 <div id="touch">
@@ -1025,7 +1048,14 @@
     jumpsLeft: 2,
     dead: false,
     facing: Math.PI / 2,
-    groundedPlatform: null
+    groundedPlatform: null,
+    powerups: {
+      magnet:     { active: false, until: 0 },
+      slowmo:     { active: false, until: 0 },
+      glider:     { active: false, until: 0 },
+      shield:     { active: false, until: 0 },
+      triplejump: { active: false, until: 0 }
+    }
   };
   setAnimal(animalIdx);
 
@@ -1209,17 +1239,240 @@
     }
   }
 
-  function addPlatform(x, y, z, w, h, d, colorHex) {
+  // ---------- Power-ups ----------
+  const powerups = [];
+  const POWERUP_TYPES = ['magnet', 'slowmo', 'glider', 'shield', 'triplejump'];
+  const POWERUP_INFO = {
+    magnet:     { color: 0xff3344, emissive: 0xff5566, icon: '🧲', duration: 12, label: 'Magnet' },
+    slowmo:     { color: 0x6688ff, emissive: 0x88aaff, icon: '⏱', duration: 8,  label: 'Slow-Mo' },
+    glider:     { color: 0xeef5ff, emissive: 0xccddff, icon: '🪂', duration: 15, label: 'Glider' },
+    shield:     { color: 0xffd633, emissive: 0xffaa00, icon: '🛡', duration: -1, label: 'Shield' },
+    triplejump: { color: 0x66ff88, emissive: 0x44ff66, icon: '🌟', duration: 12, label: 'Triple Jump' }
+  };
+  const activePowersEl = document.getElementById('activePowers');
+
+  function buildPowerupMesh(type) {
+    const info = POWERUP_INFO[type];
+    const g = new THREE.Group();
+    const matMain = new THREE.MeshStandardMaterial({
+      color: info.color, emissive: info.emissive, emissiveIntensity: 0.65,
+      roughness: 0.35, metalness: 0.5
+    });
+    if (type === 'magnet') {
+      // U-shaped horseshoe magnet
+      const left = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.5, 12), matMain);
+      left.position.set(-0.18, 0, 0); g.add(left);
+      const right = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.5, 12), matMain);
+      right.position.set(0.18, 0, 0); g.add(right);
+      const bottom = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.16), matMain);
+      bottom.position.set(0, -0.25, 0); g.add(bottom);
+      const tipMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, metalness: 0.9, roughness: 0.2 });
+      for (const xs of [-0.18, 0.18]) {
+        const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.1, 12), tipMat);
+        tip.position.set(xs, 0.25, 0); g.add(tip);
+      }
+    } else if (type === 'slowmo') {
+      // Clock face
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.07, 12, 24), matMain);
+      g.add(ring);
+      const handMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xeeeeff, emissiveIntensity: 0.7 });
+      const h1 = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.05), handMat);
+      h1.position.y = 0.06; g.add(h1);
+      const h2 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.05), handMat);
+      h2.position.x = 0.04; g.add(h2);
+    } else if (type === 'glider') {
+      // Parachute cone + small pod
+      const canopy = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.42, 14), matMain);
+      canopy.position.y = 0.15; g.add(canopy);
+      const pod = new THREE.Mesh(
+        new THREE.BoxGeometry(0.16, 0.14, 0.14),
+        new THREE.MeshStandardMaterial({ color: 0x4499ff, emissive: 0x3377cc, emissiveIntensity: 0.5 })
+      );
+      pod.position.y = -0.18; g.add(pod);
+      // strings
+      const stringMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+      for (const xs of [-0.18, 0.18]) {
+        const str = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 6), stringMat);
+        str.position.set(xs, -0.04, 0);
+        str.rotation.z = xs > 0 ? -0.4 : 0.4;
+        g.add(str);
+      }
+    } else if (type === 'shield') {
+      // Gold sphere with diamond
+      const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), matMain);
+      g.add(sphere);
+      const diamond = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.14),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.9, metalness: 0.85 })
+      );
+      diamond.position.z = 0.18; g.add(diamond);
+    } else if (type === 'triplejump') {
+      // Three stacked green spheres + star
+      for (let i = 0; i < 3; i++) {
+        const s = new THREE.Mesh(new THREE.SphereGeometry(0.13 - i * 0.025, 12, 10), matMain);
+        s.position.y = -0.2 + i * 0.16;
+        g.add(s);
+      }
+    }
+    return g;
+  }
+
+  function addPowerup(p, type) {
+    const mesh = buildPowerupMesh(type);
+    const baseY = p.y + p.hh + 1.05;
+    mesh.position.set(p.x, baseY, p.z);
+    scene.add(mesh);
+    powerups.push({
+      mesh, type, x: p.x, y: baseY, z: p.z, baseY,
+      collected: false,
+      bobPhase: Math.random() * Math.PI * 2,
+      rotSpeed: 1.4 + Math.random() * 0.6
+    });
+  }
+
+  function maybeAddPowerup(p, diff) {
+    if (diff.lvl < 2) return; // none on level 1
+    const chance = 0.05 + Math.min(0.08, (diff.lvl - 2) * 0.012);
+    if (Math.random() > chance) return;
+    const weights = { magnet: 1.0, slowmo: 0.85, glider: 0.8, shield: 0.55, triplejump: 0.9 };
+    const total = Object.values(weights).reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (const [t, w] of Object.entries(weights)) {
+      r -= w;
+      if (r <= 0) { addPowerup(p, t); return; }
+    }
+  }
+
+  function activatePowerup(type) {
+    const info = POWERUP_INFO[type];
+    const pu = player.powerups[type];
+    pu.active = true;
+    if (info.duration > 0) pu.until = clock.elapsedTime + info.duration;
+    // celebratory chime + burst in the power-up's color
+    tone(660, 0.08, { vol: 0.10 });
+    setTimeout(() => tone(990, 0.12, { vol: 0.10 }), 60);
+    setTimeout(() => tone(1320, 0.16, { vol: 0.10 }), 130);
+    burst(player.pos.x, player.pos.y + 1, player.pos.z, info.color, 18,
+      { speed: 4, gravity: 4, upward: true, life: 0.9 });
+    updatePowerupHud();
+  }
+
+  function updatePowerupHud() {
+    if (!activePowersEl) return;
+    const now = clock.elapsedTime;
+    const items = [];
+    for (const type of POWERUP_TYPES) {
+      const pu = player.powerups[type];
+      if (!pu.active) continue;
+      const info = POWERUP_INFO[type];
+      const label = info.duration > 0
+        ? `${info.icon} ${Math.max(0, Math.ceil(pu.until - now))}s`
+        : `${info.icon}`;
+      items.push(`<span class="chip ${type}">${label}</span>`);
+    }
+    activePowersEl.innerHTML = items.join('');
+  }
+
+  // ---------- Special platform types ----------
+  // Type-based color override + decoration. Type drives unique landing behavior.
+  function pickPlatformType(diff) {
+    const w = {
+      normal:       1.0,
+      bouncy:       diff.lvl >= 2 ? 0.16 : 0,
+      disappearing: diff.lvl >= 3 ? 0.10 : 0,
+      boost:        diff.lvl >= 3 ? 0.10 : 0,
+      ice:          diff.lvl >= 4 ? 0.10 : 0
+    };
+    const total = Object.values(w).reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (const [t, weight] of Object.entries(w)) {
+      r -= weight;
+      if (r <= 0) return t;
+    }
+    return 'normal';
+  }
+
+  function addPlatform(x, y, z, w, h, d, colorHex, type = 'normal') {
+    // Override visuals based on type
+    let visualColor = colorHex;
+    let matOpts = { emissiveIntensity: 0.3, roughness: 0.45, metalness: 0.1, transparent: false, opacity: 1 };
+    if (type === 'bouncy') {
+      visualColor = 0x44ff66;
+      matOpts.emissiveIntensity = 0.55;
+    } else if (type === 'disappearing') {
+      visualColor = 0xaa55ee;
+      matOpts.emissiveIntensity = 0.5;
+      matOpts.transparent = true;
+      matOpts.opacity = 0.92;
+    } else if (type === 'boost') {
+      visualColor = 0xff8833;
+      matOpts.emissiveIntensity = 0.6;
+    } else if (type === 'ice') {
+      visualColor = 0x99ddff;
+      matOpts.metalness = 0.5;
+      matOpts.roughness = 0.15;
+      matOpts.emissiveIntensity = 0.2;
+    }
     const geo = new THREE.BoxGeometry(w, h, d);
     const mat = new THREE.MeshStandardMaterial({
-      color: colorHex, emissive: colorHex, emissiveIntensity: 0.3,
-      roughness: 0.45, metalness: 0.1
+      color: visualColor, emissive: visualColor,
+      emissiveIntensity: matOpts.emissiveIntensity,
+      roughness: matOpts.roughness, metalness: matOpts.metalness,
+      transparent: matOpts.transparent, opacity: matOpts.opacity
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(x, y, z);
     mesh.castShadow = true; mesh.receiveShadow = true;
     scene.add(mesh);
-    const plat = { mesh, x, y, z, w, h, d, hw: w/2, hh: h/2, hd: d/2 };
+
+    // Decorations attached to mesh (move/disappear with it)
+    if (type === 'bouncy') {
+      const coil = new THREE.Mesh(
+        new THREE.TorusGeometry(0.2, 0.06, 8, 18),
+        new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xaaffbb, emissiveIntensity: 0.7, metalness: 0.6, roughness: 0.3 })
+      );
+      coil.rotation.x = Math.PI / 2;
+      coil.position.set(0, h / 2 + 0.1, 0);
+      mesh.add(coil);
+    } else if (type === 'boost') {
+      // forward-pointing chevron arrows on top
+      for (let i = 0; i < 2; i++) {
+        const arrow = new THREE.Mesh(
+          new THREE.ConeGeometry(0.18, 0.32, 8),
+          new THREE.MeshStandardMaterial({ color: 0xffff66, emissive: 0xffcc33, emissiveIntensity: 0.8 })
+        );
+        arrow.rotation.z = -Math.PI / 2;
+        arrow.position.set(-0.25 + i * 0.35, h / 2 + 0.18, 0);
+        mesh.add(arrow);
+      }
+    } else if (type === 'disappearing') {
+      // small cross / fade marker
+      const x1 = new THREE.Mesh(
+        new THREE.BoxGeometry(0.35, 0.04, 0.04),
+        new THREE.MeshStandardMaterial({ color: 0xeeccff, emissive: 0xcc99ff, emissiveIntensity: 0.6 })
+      );
+      x1.position.y = h / 2 + 0.05;
+      x1.rotation.y = Math.PI / 4;
+      mesh.add(x1);
+      const x2 = x1.clone();
+      x2.rotation.y = -Math.PI / 4;
+      mesh.add(x2);
+    } else if (type === 'ice') {
+      // crystalline shimmer (small octahedrons)
+      for (let i = 0; i < 2; i++) {
+        const ice = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.07 + Math.random() * 0.04),
+          new THREE.MeshStandardMaterial({
+            color: 0xeefaff, emissive: 0xaaddff, emissiveIntensity: 0.6,
+            metalness: 0.7, roughness: 0.1
+          })
+        );
+        ice.position.set((Math.random() - 0.5) * w * 0.5, h / 2 + 0.08, (Math.random() - 0.5) * d * 0.4);
+        mesh.add(ice);
+      }
+    }
+
+    const plat = { mesh, x, y, z, w, h, d, hw: w/2, hh: h/2, hd: d/2, type, disappearTimer: 0 };
     platforms.push(plat);
     return plat;
   }
@@ -1268,6 +1521,11 @@
     spikes.length = 0;
     for (const c of coins) scene.remove(c.mesh);
     coins.length = 0;
+    for (const pu of powerups) {
+      scene.remove(pu.mesh);
+      pu.mesh.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    }
+    powerups.length = 0;
     for (const pp of particles) {
       scene.remove(pp.mesh);
       pp.mesh.material.dispose();
@@ -1290,9 +1548,11 @@
       prevSpawnY = y;
       const z = pickZ(prevSpawnZ, diff.zVar);
       prevSpawnZ = z;
-      const p = addPlatform(x, y, z, w, 0.6, d, PALETTE[Math.floor(Math.random() * PALETTE.length)]);
+      const type = i < 2 ? 'normal' : pickPlatformType(diff);
+      const p = addPlatform(x, y, z, w, 0.6, d, PALETTE[Math.floor(Math.random() * PALETTE.length)], type);
       maybeAddCoins(p, diff);
       maybeAddMotion(p, diff);
+      maybeAddPowerup(p, diff);
       x += w / 2;
     }
     furthestX = x;
@@ -1311,9 +1571,11 @@
       prevSpawnY = y;
       const z = pickZ(prevSpawnZ, diff.zVar);
       prevSpawnZ = z;
-      const p = addPlatform(furthestX, y, z, w, 0.6, d, PALETTE[Math.floor(Math.random() * PALETTE.length)]);
+      const type = pickPlatformType(diff);
+      const p = addPlatform(furthestX, y, z, w, 0.6, d, PALETTE[Math.floor(Math.random() * PALETTE.length)], type);
       maybeAddCoins(p, diff);
       maybeAddMotion(p, diff);
+      maybeAddPowerup(p, diff);
       furthestX += w / 2;
     }
     for (let i = platforms.length - 1; i >= 0; i--) {
@@ -1335,6 +1597,35 @@
       if (coins[i].x < player.pos.x - 35) {
         scene.remove(coins[i].mesh);
         coins.splice(i, 1);
+      }
+    }
+    for (let i = powerups.length - 1; i >= 0; i--) {
+      if (powerups[i].x < player.pos.x - 35) {
+        scene.remove(powerups[i].mesh);
+        powerups[i].mesh.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+        powerups.splice(i, 1);
+      }
+    }
+  }
+
+  // Update disappearing platforms each frame
+  function updateDisappearing(dt) {
+    for (let i = platforms.length - 1; i >= 0; i--) {
+      const p = platforms[i];
+      if (!p.disappearTimer) continue;
+      p.disappearTimer += dt;
+      if (p.disappearTimer > 0.55 && p.disappearTimer < 1.2) {
+        // shake + flicker
+        p.mesh.position.x = p.x + (Math.random() - 0.5) * 0.18;
+        p.mesh.position.z = p.z + (Math.random() - 0.5) * 0.12;
+        if (!p.mesh.material.transparent) p.mesh.material.transparent = true;
+        p.mesh.material.opacity = 0.4 + Math.random() * 0.5;
+      } else if (p.disappearTimer >= 1.2) {
+        scene.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        platforms.splice(i, 1);
+        burst(p.x, p.y + p.hh, p.z, 0xaa66ff, 18, { speed: 3, gravity: 6, upward: true, life: 0.8 });
       }
     }
   }
@@ -1447,11 +1738,24 @@
           player.vel.y = 0;
           player.onGround = true;
           player.coyote = 0.12;
-          player.jumpsLeft = 1;
+          player.jumpsLeft = player.powerups.triplejump.active ? 2 : 1;
           player.groundedPlatform = p;
           if (wasAirborne && landingVy < -8) {
             sfx.land();
             burst(player.pos.x, player.pos.y, player.pos.z, 0xddddee, 8, { speed: 2.5, gravity: 8 });
+          }
+          // ---- Special platform effects on landing ----
+          if (p.type === 'bouncy') {
+            player.vel.y = 19;
+            player.onGround = false;
+            sfx.djump();
+            burst(player.pos.x, player.pos.y, player.pos.z, 0x66ff88, 14, { speed: 3, gravity: 6, upward: true });
+          } else if (p.type === 'boost') {
+            player.vel.x = Math.max(player.vel.x, 14);
+            sfx.jump();
+            burst(player.pos.x, player.pos.y + 0.4, player.pos.z, 0xff8833, 12, { speed: 4, gravity: 4 });
+          } else if (p.type === 'disappearing' && !p.disappearTimer) {
+            p.disappearTimer = 0.001;
           }
         }
       }
@@ -1503,6 +1807,11 @@
     levelEl.textContent = '1';
     levelFlashEl.classList.remove('show');
     jumpPressed = false; jumpHeld = false;
+    for (const t of POWERUP_TYPES) {
+      player.powerups[t].active = false;
+      player.powerups[t].until = 0;
+    }
+    if (activePowersEl) activePowersEl.innerHTML = '';
   }
   function startGame() {
     reset();
@@ -1666,6 +1975,19 @@
     }
     if (!started) return;
 
+    // ---- Power-up effects timing ----
+    const now = clock.elapsedTime;
+    let hudDirty = false;
+    for (const type of POWERUP_TYPES) {
+      const pu = player.powerups[type];
+      if (pu.active && POWERUP_INFO[type].duration > 0 && now > pu.until) {
+        pu.active = false;
+        hudDirty = true;
+      }
+    }
+    // Slow-mo scales all game physics dt (camera & HUD stay real-time)
+    const wDt = player.powerups.slowmo.active ? dt * 0.45 : dt;
+
     let ix = 0, iz = 0;
     if (keys['KeyW'] || keys['ArrowUp'])    ix += 1;
     if (keys['KeyS'] || keys['ArrowDown'])  ix -= 1;
@@ -1678,21 +2000,23 @@
 
     const tvx = ix * 9;
     const tvz = iz * 9;
-    const accel = player.onGround ? 28 : 14;
-    const k = Math.min(1, accel * dt / 9);
+    // Ice platforms have very low ground friction (slippery)
+    const onIce = player.onGround && player.groundedPlatform && player.groundedPlatform.type === 'ice';
+    const accel = onIce ? 5 : (player.onGround ? 28 : 14);
+    const k = Math.min(1, accel * wDt / 9);
     player.vel.x += (tvx - player.vel.x) * k;
     player.vel.z += (tvz - player.vel.z) * k;
 
     if (jumpPressed) { player.jumpBuffer = 0.15; jumpPressed = false; }
-    player.jumpBuffer -= dt;
-    player.coyote -= dt;
+    player.jumpBuffer -= wDt;
+    player.coyote -= wDt;
     if (player.jumpBuffer > 0) {
       if (player.onGround || player.coyote > 0) {
         player.vel.y = 14;
         player.onGround = false;
         player.coyote = 0;
         player.jumpBuffer = 0;
-        player.jumpsLeft = 1;
+        player.jumpsLeft = player.powerups.triplejump.active ? 2 : 1;
         sfx.jump();
         burst(player.pos.x, player.pos.y, player.pos.z, 0xccddff, 6, { speed: 2, gravity: 6 });
       } else if (player.jumpsLeft > 0) {
@@ -1705,7 +2029,11 @@
     }
     if (!jumpHeld && player.vel.y > 6) player.vel.y = 6;
 
-    player.vel.y -= 36 * dt;
+    player.vel.y -= 36 * wDt;
+    // Glider clamps the falling speed while holding jump
+    if (player.powerups.glider.active && jumpHeld && player.vel.y < -2.5) {
+      player.vel.y = -2.5;
+    }
     if (player.vel.y < -35) player.vel.y = -35;
 
     // moving platforms carry
@@ -1722,9 +2050,9 @@
 
     player.onGround = false;
     player.groundedPlatform = null;
-    player.pos.x += player.vel.x * dt; resolveAxis('x');
-    player.pos.z += player.vel.z * dt; resolveAxis('z');
-    player.pos.y += player.vel.y * dt; resolveAxis('y');
+    player.pos.x += player.vel.x * wDt; resolveAxis('x');
+    player.pos.z += player.vel.z * wDt; resolveAxis('z');
+    player.pos.y += player.vel.y * wDt; resolveAxis('y');
 
     // facing — keep animal pointed +X
     const targetFacing = Math.PI / 2;
@@ -1783,18 +2111,62 @@
         burst(c.x, c.y, c.z, 0xffd633, 14, { speed: 3, gravity: 4, upward: true });
       }
     }
+    const magnetOn = player.powerups.magnet.active;
     for (const c of coins) {
       if (c.collected) continue;
       // drift around on top of the platform — Lissajous-style pattern
       c.x = c.baseX + Math.sin(t * c.freqX + c.phase) * c.ampX;
       c.z = c.baseZ + Math.cos(t * c.freqZ + c.phase * 1.3) * c.ampZ;
+      // Magnet pulls coins within ~7 units smoothly toward the player
+      if (magnetOn) {
+        const ddx = px - c.x, ddz = pz - c.z;
+        if (ddx*ddx + ddz*ddz < 50) {
+          c.x += ddx * Math.min(1, 6 * dt);
+          c.z += ddz * Math.min(1, 6 * dt);
+        }
+      }
       c.mesh.position.x = c.x;
       c.mesh.position.z = c.z;
       c.mesh.position.y = c.baseY + Math.sin(t * 3 + c.bobPhase) * 0.12;
       c.mesh.rotation.z += dt * 3.5;
     }
 
-    if (player.pos.y < LAVA_Y + 0.5) { lavaDeath(); endGame(); }
+    // Power-up animation + collection
+    for (const pu of powerups) {
+      if (pu.collected) continue;
+      pu.mesh.rotation.y += dt * pu.rotSpeed;
+      pu.mesh.position.y = pu.baseY + Math.sin(t * 2.4 + pu.bobPhase) * 0.18;
+      const dpx = pu.x - px, dpy = pu.baseY - pyc, dpz = pu.z - pz;
+      if (dpx*dpx + dpy*dpy + dpz*dpz < 1.6) {
+        pu.collected = true;
+        pu.mesh.visible = false;
+        activatePowerup(pu.type);
+      }
+    }
+
+    if (hudDirty || magnetOn || player.powerups.slowmo.active ||
+        player.powerups.glider.active || player.powerups.triplejump.active ||
+        player.powerups.shield.active) {
+      updatePowerupHud();
+    }
+
+    // Disappearing platforms tick (uses real dt so they always vanish in real time)
+    updateDisappearing(dt);
+
+    if (player.pos.y < LAVA_Y + 0.5) {
+      // Shield save: spend the shield, restore to a safe height instead of dying
+      if (player.powerups.shield.active) {
+        player.powerups.shield.active = false;
+        player.pos.y = LAVA_Y + 8;
+        player.vel.y = 4;
+        burst(player.pos.x, player.pos.y, player.pos.z, 0xffd633, 30, { speed: 5, gravity: 4, upward: true });
+        sfx.coin();
+        updatePowerupHud();
+      } else {
+        lavaDeath();
+        endGame();
+      }
+    }
     if (hitsSpike()) { spikeDeath(); endGame(); }
 
     const ns = Math.max(score, Math.floor(player.pos.x * 2));
