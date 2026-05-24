@@ -1631,9 +1631,37 @@
           burst(animalGroup.position.x, animalGroup.position.y + 0.4, animalGroup.position.z,
             0xffcc33, 5, { speed: 4, gravity: 3, upward: true, life: 0.9 });
         }
+      } else if (deathTimer < 6.0) {
+        // ---- Phase 3: LINGER IN HEAVEN ----
+        // Animal hovers in front of the open gates; halo and sparkles continue.
+        const peakY = dp.y + 16;
+        const bob = Math.sin((deathTimer - 3.4) * 1.6) * 0.08;
+        animalGroup.position.set(dp.x, peakY + bob, dp.z);
+        animalGroup.rotation.set(0, player.facing, 0);
+        animalGroup.scale.setScalar(1.2);
+
+        halo.visible = true;
+        halo.material.opacity = 1;
+        halo.position.set(animalGroup.position.x, animalGroup.position.y + 1.95, animalGroup.position.z);
+        halo.rotation.z += dt * 1.0;
+
+        // Jesus's halo keeps rotating
+        heaven.halo.rotation.z += dt * 0.7;
+
+        // light, occasional sparkles around the spirit animal
+        if (Math.random() < 0.28) {
+          burst(
+            animalGroup.position.x + (Math.random() - 0.5) * 1.4,
+            animalGroup.position.y + (Math.random() - 0.5) * 0.6,
+            animalGroup.position.z + (Math.random() - 0.5) * 1.4,
+            Math.random() < 0.5 ? 0xffeecc : 0xfff5b0,
+            2, { speed: 1.0, gravity: -1, life: 1.2 }
+          );
+        }
       }
 
-      if (deathTimer > 3.0 && overlay.classList.contains('hidden')) showGameOverOverlay();
+      // Hold the heaven scene visible for ~2 seconds after the ascent finishes
+      if (deathTimer > 5.6 && overlay.classList.contains('hidden')) showGameOverOverlay();
       return;
     }
     if (!started) return;
