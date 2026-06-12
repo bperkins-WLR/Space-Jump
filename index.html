@@ -304,12 +304,15 @@
   camera.position.set(-8, 6, 0);
   camera.lookAt(0, 1, 0);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.setClearColor(0x88ccff);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Filmic tone mapping — softer highlights, richer color response (the big "HD" switch)
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
   document.body.appendChild(renderer.domElement);
 
   function onResize() {
@@ -320,9 +323,40 @@
   window.addEventListener('resize', onResize);
   window.addEventListener('orientationchange', () => setTimeout(onResize, 100));
 
+  // ---------- Environment reflections ----------
+  // A tiny offscreen sky scene baked into a PMREM env map. Every standard/physical
+  // material in the game picks it up — metals look metallic, surfaces get sky bounce.
+  {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envScene = new THREE.Scene();
+    const envSky = new THREE.Mesh(
+      new THREE.SphereGeometry(50, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0x8fc8f0, side: THREE.BackSide })
+    );
+    envScene.add(envSky);
+    const envGround = new THREE.Mesh(
+      new THREE.CircleGeometry(40, 24),
+      new THREE.MeshBasicMaterial({ color: 0xf4f9ff, side: THREE.DoubleSide })
+    );
+    envGround.rotation.x = -Math.PI / 2;
+    envGround.position.y = -8;
+    envScene.add(envGround);
+    const envSun = new THREE.Mesh(
+      new THREE.SphereGeometry(6, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0xfffbe8 })
+    );
+    envSun.position.set(20, 28, 12);
+    envScene.add(envSun);
+    scene.environment = pmrem.fromScene(envScene, 0.06).texture;
+    pmrem.dispose();
+  }
+
   // ---------- Lights ----------
-  const ambientLight = new THREE.AmbientLight(0xb6d0ee, 0.8);
+  const ambientLight = new THREE.AmbientLight(0xb6d0ee, 0.55);
   scene.add(ambientLight);
+  // Sky/ground bounce light — natural blue from above, soft white from the cloud sea below
+  const hemiLight = new THREE.HemisphereLight(0xbfdfff, 0xf2f8ff, 0.5);
+  scene.add(hemiLight);
   const sun = new THREE.DirectionalLight(0xfff5d8, 1.25);
   sun.position.set(20, 40, 15);
   sun.castShadow = true;
@@ -1359,9 +1393,10 @@
 
   // coins
   const coinGeo = new THREE.TorusGeometry(0.28, 0.09, 10, 18);
+  // Full-metal gold — with the env map these reflect like real polished rings
   const coinMat = new THREE.MeshStandardMaterial({
-    color: 0xffd633, emissive: 0xffaa00, emissiveIntensity: 0.9,
-    roughness: 0.25, metalness: 0.9
+    color: 0xffd633, emissive: 0xffaa00, emissiveIntensity: 0.45,
+    roughness: 0.12, metalness: 1.0
   });
   function addCoin(p, phaseOffset) {
     const m = new THREE.Mesh(coinGeo, coinMat);
@@ -1673,10 +1708,12 @@
       matOpts.emissiveIntensity = 0.2;
     }
     const geo = new THREE.BoxGeometry(w, h, d);
-    const mat = new THREE.MeshStandardMaterial({
+    // Physical material with clearcoat — platforms read as glossy painted surfaces
+    const mat = new THREE.MeshPhysicalMaterial({
       color: visualColor, emissive: visualColor,
-      emissiveIntensity: matOpts.emissiveIntensity,
+      emissiveIntensity: matOpts.emissiveIntensity * 0.7,
       roughness: matOpts.roughness, metalness: matOpts.metalness,
+      clearcoat: 0.55, clearcoatRoughness: 0.3,
       transparent: matOpts.transparent, opacity: matOpts.opacity
     });
     const mesh = new THREE.Mesh(geo, mat);
