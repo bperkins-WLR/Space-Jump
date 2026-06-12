@@ -321,7 +321,8 @@
   window.addEventListener('orientationchange', () => setTimeout(onResize, 100));
 
   // ---------- Lights ----------
-  scene.add(new THREE.AmbientLight(0xb6d0ee, 0.8));
+  const ambientLight = new THREE.AmbientLight(0xb6d0ee, 0.8);
+  scene.add(ambientLight);
   const sun = new THREE.DirectionalLight(0xfff5d8, 1.25);
   sun.position.set(20, 40, 15);
   sun.castShadow = true;
@@ -430,6 +431,138 @@
       (Math.random() - 0.5) * 80,
       -(0.2 + Math.random() * 0.7)
     );
+  }
+
+  // ---------- Theme worlds ----------
+  // Each theme defines the sky gradient, fog, ambient + sun light, sun disc, and cloud colors.
+  // Themes change at level milestones with a smooth 2-second blend.
+  const THEMES = [
+    {
+      name: 'Sky', fromLevel: 1,
+      skyTop: 0x3a80c8, skyMid: 0x88ccff, skyBot: 0xe2f0ff,
+      fog:    0xc4e4ff, clear:  0x88ccff,
+      ambient: 0xb6d0ee, ambientI: 0.8,
+      sun:     0xfff5d8, sunI:    1.25, sunDisc: 0xfff5c0,
+      cloud:   0xffffff, cloudEm: 0xffffff
+    },
+    {
+      name: 'Sunset', fromLevel: 6,
+      skyTop: 0x5a3a8a, skyMid: 0xff9c63, skyBot: 0xffd070,
+      fog:    0xff9c63, clear:  0xff9c63,
+      ambient: 0xe5a878, ambientI: 0.75,
+      sun:     0xffba80, sunI:    1.15, sunDisc: 0xff7848,
+      cloud:   0xffa878, cloudEm: 0xff7048
+    },
+    {
+      name: 'Aurora Night', fromLevel: 11,
+      skyTop: 0x06061a, skyMid: 0x0a1a3a, skyBot: 0x1a4a6a,
+      fog:    0x0a1a3a, clear:  0x06061a,
+      ambient: 0x506890, ambientI: 0.6,
+      sun:     0xc8d0f0, sunI:    0.85, sunDisc: 0xeeeeff,
+      cloud:   0x4060a0, cloudEm: 0x6080c0
+    },
+    {
+      name: 'Underwater', fromLevel: 16,
+      skyTop: 0x0a4060, skyMid: 0x2080a0, skyBot: 0x50c0d0,
+      fog:    0x2080a0, clear:  0x2080a0,
+      ambient: 0x80d0e0, ambientI: 0.85,
+      sun:     0xb0e0ff, sunI:    1.0,  sunDisc: 0xb0e0ff,
+      cloud:   0xa0e0e0, cloudEm: 0xc0e8e8
+    },
+    {
+      name: 'Candy', fromLevel: 22,
+      skyTop: 0xff80c8, skyMid: 0xffb0e8, skyBot: 0xfff0fa,
+      fog:    0xffb0e8, clear:  0xff80c8,
+      ambient: 0xffc8e0, ambientI: 0.85,
+      sun:     0xffeaff, sunI:    1.1,  sunDisc: 0xffe8f8,
+      cloud:   0xfff0fa, cloudEm: 0xffd8ee
+    }
+  ];
+
+  function themeForLevel(lvl) {
+    let chosen = THEMES[0];
+    for (const t of THEMES) if (lvl >= t.fromLevel) chosen = t;
+    return chosen;
+  }
+
+  // Mutable current state (each field is interpolated each frame during a transition)
+  const themeState = {
+    skyTop:  new THREE.Color(THEMES[0].skyTop),
+    skyMid:  new THREE.Color(THEMES[0].skyMid),
+    skyBot:  new THREE.Color(THEMES[0].skyBot),
+    fog:     new THREE.Color(THEMES[0].fog),
+    clear:   new THREE.Color(THEMES[0].clear),
+    ambient: new THREE.Color(THEMES[0].ambient), ambientI: THEMES[0].ambientI,
+    sun:     new THREE.Color(THEMES[0].sun),     sunI:     THEMES[0].sunI,
+    sunDisc: new THREE.Color(THEMES[0].sunDisc),
+    cloud:   new THREE.Color(THEMES[0].cloud),
+    cloudEm: new THREE.Color(THEMES[0].cloudEm)
+  };
+  let targetTheme = THEMES[0];
+  let targetColors = null;  // pre-baked Color objects for fast lerp
+  let themeTransition = 0;  // seconds remaining
+
+  function buildTargetColors(t) {
+    return {
+      skyTop:  new THREE.Color(t.skyTop),
+      skyMid:  new THREE.Color(t.skyMid),
+      skyBot:  new THREE.Color(t.skyBot),
+      fog:     new THREE.Color(t.fog),
+      clear:   new THREE.Color(t.clear),
+      ambient: new THREE.Color(t.ambient), ambientI: t.ambientI,
+      sun:     new THREE.Color(t.sun),     sunI:     t.sunI,
+      sunDisc: new THREE.Color(t.sunDisc),
+      cloud:   new THREE.Color(t.cloud),
+      cloudEm: new THREE.Color(t.cloudEm)
+    };
+  }
+
+  function setTargetTheme(t) {
+    if (targetTheme === t) return;
+    targetTheme = t;
+    targetColors = buildTargetColors(t);
+    themeTransition = 2.4;  // seconds to blend
+  }
+
+  function applyThemeState() {
+    skyMat.uniforms.topColor.value.copy(themeState.skyTop);
+    skyMat.uniforms.midColor.value.copy(themeState.skyMid);
+    skyMat.uniforms.bottomColor.value.copy(themeState.skyBot);
+    scene.fog.color.copy(themeState.fog);
+    renderer.setClearColor(themeState.clear);
+    ambientLight.color.copy(themeState.ambient);
+    ambientLight.intensity = themeState.ambientI;
+    sun.color.copy(themeState.sun);
+    sun.intensity = themeState.sunI;
+    sunDisc.material.color.copy(themeState.sunDisc);
+    for (const c of clouds) {
+      c.group.traverse(o => {
+        if (o.isMesh && o.material) {
+          if (o.material.color)    o.material.color.copy(themeState.cloud);
+          if (o.material.emissive) o.material.emissive.copy(themeState.cloudEm);
+        }
+      });
+    }
+  }
+
+  function updateTheme(dt) {
+    if (themeTransition <= 0 || !targetColors) return;
+    themeTransition -= dt;
+    const rate = Math.min(1, dt * 0.7);
+    themeState.skyTop.lerp(targetColors.skyTop, rate);
+    themeState.skyMid.lerp(targetColors.skyMid, rate);
+    themeState.skyBot.lerp(targetColors.skyBot, rate);
+    themeState.fog.lerp(targetColors.fog, rate);
+    themeState.clear.lerp(targetColors.clear, rate);
+    themeState.ambient.lerp(targetColors.ambient, rate);
+    themeState.ambientI += (targetColors.ambientI - themeState.ambientI) * rate;
+    themeState.sun.lerp(targetColors.sun, rate);
+    themeState.sunI += (targetColors.sunI - themeState.sunI) * rate;
+    themeState.sunDisc.lerp(targetColors.sunDisc, rate);
+    themeState.cloud.lerp(targetColors.cloud, rate);
+    themeState.cloudEm.lerp(targetColors.cloudEm, rate);
+    applyThemeState();
+    if (themeTransition <= 0) themeTransition = 0;
   }
 
   // ---------- Birds ----------
@@ -1894,12 +2027,15 @@
   let flashTimer = 0;
   let shakeAmt = 0;
 
-  function flashLevel(passedLvl, newLvl) {
+  function flashLevel(passedLvl, newLvl, newThemeName) {
+    const tagline = newThemeName
+      ? `Welcome to ${newThemeName}`
+      : `Now on Level ${newLvl}`;
     levelFlashEl.innerHTML =
       '🏆 LEVEL ' + passedLvl + ' COMPLETE!' +
-      '<br><span style="font-size:0.55em;opacity:0.85;">Now on Level ' + newLvl + '</span>';
+      '<br><span style="font-size:0.55em;opacity:0.85;">' + tagline + '</span>';
     levelFlashEl.classList.add('show');
-    flashTimer = 2.2;
+    flashTimer = newThemeName ? 3.0 : 2.2;
   }
 
   function reset() {
@@ -1932,6 +2068,24 @@
     coinsEl.textContent = '0';
     levelEl.textContent = '1';
     levelFlashEl.classList.remove('show');
+    // Snap world back to the starting theme
+    const startTheme = THEMES[0];
+    targetTheme = startTheme;
+    targetColors = buildTargetColors(startTheme);
+    themeState.skyTop.copy(targetColors.skyTop);
+    themeState.skyMid.copy(targetColors.skyMid);
+    themeState.skyBot.copy(targetColors.skyBot);
+    themeState.fog.copy(targetColors.fog);
+    themeState.clear.copy(targetColors.clear);
+    themeState.ambient.copy(targetColors.ambient);
+    themeState.ambientI = targetColors.ambientI;
+    themeState.sun.copy(targetColors.sun);
+    themeState.sunI = targetColors.sunI;
+    themeState.sunDisc.copy(targetColors.sunDisc);
+    themeState.cloud.copy(targetColors.cloud);
+    themeState.cloudEm.copy(targetColors.cloudEm);
+    themeTransition = 0;
+    applyThemeState();
     jumpPressed = false; jumpHeld = false;
     for (const t of POWERUP_TYPES) {
       player.powerups[t].active = false;
@@ -2337,9 +2491,12 @@
       const passed = currentLevel;
       currentLevel = lvl;
       levelEl.textContent = lvl;
-      flashLevel(passed, lvl);
+      const newTheme = themeForLevel(lvl);
+      const themeChanged = newTheme !== targetTheme;
+      flashLevel(passed, lvl, themeChanged ? newTheme.name : null);
       sfx.levelup();
       confetti(player.pos.x, player.pos.y + 0.8, player.pos.z);
+      if (themeChanged) setTargetTheme(newTheme);
     }
 
     spawnAhead();
@@ -2393,6 +2550,7 @@
     const t = clock.elapsedTime;
     animateClouds(dt);
     animateBirds(dt, t);
+    updateTheme(dt);
     update(dt, t);
     updateParticles(dt);
     updateCamera(dt);
@@ -2405,6 +2563,9 @@
   }
 
   buildInitial();
+  // Apply the starting theme so the scene matches THEMES[0] from frame 0
+  targetColors = buildTargetColors(THEMES[0]);
+  applyThemeState();
   loop();
 })();
 </script>
