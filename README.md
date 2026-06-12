@@ -1,6 +1,6 @@
-# Space Jumper 3D
+# Cloud Hopper
 
-A small 3D platformer built with Three.js — a fox hops across floating platforms over a sea of lava, avoiding spikes and collecting coins. Plays in any modern browser and is installable to the iPad home screen as a PWA.
+A small 3D platformer built with Three.js — pick an animal and hop across floating platforms above a sea of fluffy clouds, collecting golden rings and power-ups through five themed worlds. Plays in any modern browser and is installable to the iPhone/iPad home screen as a PWA.
 
 ## Play
 
