@@ -32,6 +32,10 @@ Open `index.html` in a browser, or visit the deployed site.
 
 Single static HTML file. Three.js is loaded from unpkg via CDN, so there's no build step.
 
+## Credits
+
+Animal models (`models/*.glb`) by [Quaternius](https://quaternius.com) via [Poly Pizza](https://poly.pizza) — CC0 / Public Domain. Rigged and animated low-poly models.
+
 ## Deploy
 
-Static — drop it on Vercel, Netlify, GitHub Pages, or any CDN.
+Static — drop it on Vercel, Netlify, GitHub Pages, or any CDN. Note: the game now uses ES modules, so it must be served over HTTP (it won't run from a `file://` URL).

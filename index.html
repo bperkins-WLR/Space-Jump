@@ -200,7 +200,7 @@
     <button class="animal-btn" data-animal="0" type="button"><span class="emoji">🦊</span><span class="name">Fox</span></button>
     <button class="animal-btn" data-animal="1" type="button"><span class="emoji">🐱</span><span class="name">Cat</span></button>
     <button class="animal-btn" data-animal="2" type="button"><span class="emoji">🐰</span><span class="name">Bunny</span></button>
-    <button class="animal-btn" data-animal="3" type="button"><span class="emoji">🐻</span><span class="name">Bear</span></button>
+    <button class="animal-btn" data-animal="3" type="button"><span class="emoji">🐺</span><span class="name">Wolf</span></button>
     <button class="animal-btn" data-animal="4" type="button"><span class="emoji">🐼</span><span class="name">Panda</span></button>
     <button class="animal-btn" data-animal="5" type="button"><span class="emoji">🐶</span><span class="name">Dog</span></button>
   </div>
@@ -216,8 +216,18 @@
   </p>
 </div>
 
-<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-<script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 (() => {
   // ---------- DOM ----------
   const scoreEl = document.getElementById('score');
@@ -1249,13 +1259,23 @@
     return { group: g, legs, ears, tailGrp: tail, name: 'Dog', emoji: '🐶' };
   }
 
-  const animalBuilders = [buildFox, buildCat, buildBunny, buildBear, buildPanda, buildDog];
+  // ---------- Animal roster: real rigged GLTF models (CC0, Quaternius) ----------
+  // Primitive builders above serve as instant fallbacks while the GLBs stream in.
+  const ANIMAL_DEFS = [
+    { name: 'Fox',   emoji: '🦊', file: 'models/Fox.glb',   idle: 'Idle', run: 'Gallop', air: 'Gallop_Jump', fallback: buildFox,   scale: 0.55 },
+    { name: 'Cat',   emoji: '🐱', file: 'models/Cat.glb',   idle: 'Idle', run: 'Run',    air: 'Jump_Loop',   fallback: buildCat,   scale: 0.68 },
+    { name: 'Bunny', emoji: '🐰', file: 'models/Bunny.glb', idle: 'Idle', run: 'Run',    air: 'Jump_Idle',   fallback: buildBunny, scale: 0.55 },
+    { name: 'Wolf',  emoji: '🐺', file: 'models/Wolf.glb',  idle: 'Idle', run: 'Gallop', air: 'Gallop_Jump', fallback: buildBear,  scale: 0.55 },
+    { name: 'Panda', emoji: '🐼', file: 'models/Panda.glb', idle: 'Idle', run: 'Run',    air: 'Jump_Idle',   fallback: buildPanda, scale: 0.55 },
+    { name: 'Dog',   emoji: '🐶', file: 'models/Dog.glb',   idle: 'Idle', run: 'Gallop', air: 'Gallop_Jump', fallback: buildDog,   scale: 0.55 }
+  ];
+
   // Sprint trail recipes per animal — each has a distinct look
   const TRAIL_CONFIGS = {
     Fox:   { colors: [0xff6b22, 0xffaa44, 0xffe066],          scale: 0.85, freq: 0.05, gravity:  3, upward: true,  life: 0.55, spread: 1.0, count: 1, yOff: 0.25 },
     Cat:   { colors: [0xeef5ff, 0xfff5b0, 0xddccff],          scale: 0.55, freq: 0.07, gravity:  4, upward: true,  life: 0.50, spread: 0.8, count: 1, yOff: 0.25 },
     Bunny: { colors: [0xffaadd, 0xffbbcc, 0xffffff, 0xff99cc],scale: 1.0,  freq: 0.13, gravity:  1, upward: false, life: 1.10, spread: 0.4, count: 2, yOff: 0.10 },
-    Bear:  { colors: [0x9a6a3a, 0xc89860, 0x8a5a2a, 0xa07750],scale: 1.7,  freq: 0.08, gravity:  5, upward: false, life: 0.85, spread: 1.4, count: 2, yOff: 0.18 },
+    Wolf:  { colors: [0xaab4c4, 0xd5dde8, 0x8893a4, 0xffffff],scale: 1.3,  freq: 0.07, gravity:  4, upward: false, life: 0.80, spread: 1.2, count: 2, yOff: 0.18 },
     Panda: { colors: [0x88dd88, 0xaaffaa, 0xccffcc, 0xffffff],scale: 1.0,  freq: 0.07, gravity:  2, upward: true,  life: 0.95, spread: 1.0, count: 1, yOff: 0.30 },
     Dog:   { colors: [0xc8a880, 0xd9b890, 0xfff2dd],          scale: 1.2,  freq: 0.08, gravity:  5, upward: false, life: 0.75, spread: 1.0, count: 2, yOff: 0.15 }
   };
@@ -1263,20 +1283,79 @@
   // Use the user's persisted choice (defaults to Fox on first load)
   const _storedAnimal = storage.get('spaceJumper3DAnimal');
   let animalIdx = (_storedAnimal !== null && !isNaN(+_storedAnimal))
-    ? Math.max(0, Math.min(animalBuilders.length - 1, +_storedAnimal))
+    ? Math.max(0, Math.min(ANIMAL_DEFS.length - 1, +_storedAnimal))
     : 0;
   let animalGroup = null;
+  let animalRig = null;   // { mixer, actions, current } when a GLTF model is active
   let legs = [], ears = [], tailGrp = null;
   const animalBtnList = document.querySelectorAll('.animal-btn');
+
+  // Async model loading — cache the parsed gltf per animal, upgrade in place when ready
+  const gltfLoader = new GLTFLoader();
+  const modelCache = {};
+  for (const def of ANIMAL_DEFS) {
+    gltfLoader.load(def.file, (gltf) => {
+      modelCache[def.name] = { scene: gltf.scene, clips: gltf.animations };
+      // If this animal is currently displayed as a primitive fallback, swap it live
+      if (ANIMAL_DEFS[animalIdx] === def) setAnimal(animalIdx);
+    }, undefined, (err) => {
+      console.warn('Model failed to load, keeping primitive fallback:', def.file, err);
+    });
+  }
+
+  // Clip names vary ('Gallop' vs 'AnimalArmature|Gallop' vs triple-prefixed) — match
+  // by the last |-segment first, then by substring.
+  function findClip(clips, key) {
+    const k = key.toLowerCase();
+    for (const c of clips) {
+      if (c.name.split('|').pop().trim().toLowerCase() === k) return c;
+    }
+    return clips.find(c => c.name.toLowerCase().includes(k)) || clips[0];
+  }
+
+  function buildModelAnimal(def) {
+    const cached = modelCache[def.name];
+    const model = SkeletonUtils.clone(cached.scene);
+    const g = new THREE.Group();
+    g.add(model);
+    // Fixed per-model scale. (Bounding-box auto-fit fails on skinned meshes —
+    // the geometry is measured in bind space, ignoring armature bone scales.)
+    // Quaternius models are origin-grounded and face +Z, matching the primitives.
+    model.scale.setScalar(def.scale);
+    const mixer = new THREE.AnimationMixer(model);
+    const actions = {
+      idle: mixer.clipAction(findClip(cached.clips, def.idle)),
+      run:  mixer.clipAction(findClip(cached.clips, def.run)),
+      air:  mixer.clipAction(findClip(cached.clips, def.air))
+    };
+    actions.run.timeScale = 1.4;
+    actions.idle.play();
+    return {
+      group: g, legs: [], ears: [], tailGrp: null,
+      name: def.name, emoji: def.emoji,
+      mixer, actions, current: 'idle', isGLTF: true
+    };
+  }
 
   function setAnimal(idx) {
     if (animalGroup) {
       scene.remove(animalGroup);
-      disposeGroup(animalGroup);
+      // GLTF clones share geometry/materials with the cache — never dispose those
+      if (!animalGroup.userData.isGLTF) disposeGroup(animalGroup);
     }
-    animalIdx = ((idx % animalBuilders.length) + animalBuilders.length) % animalBuilders.length;
-    const a = animalBuilders[animalIdx]();
+    animalIdx = ((idx % ANIMAL_DEFS.length) + ANIMAL_DEFS.length) % ANIMAL_DEFS.length;
+    const def = ANIMAL_DEFS[animalIdx];
+    let a;
+    if (modelCache[def.name]) {
+      a = buildModelAnimal(def);
+    } else {
+      const f = def.fallback();
+      a = { group: f.group, legs: f.legs, ears: f.ears, tailGrp: f.tailGrp,
+            name: def.name, emoji: def.emoji, mixer: null, actions: null, isGLTF: false };
+    }
     animalGroup = a.group;
+    animalGroup.userData.isGLTF = a.isGLTF;
+    animalRig = a;
     legs = a.legs;
     ears = a.ears;
     tailGrp = a.tailGrp;
@@ -1284,9 +1363,22 @@
     animalGroup.position.copy(player.pos);
     animalGroup.rotation.y = player.facing;
     scene.add(animalGroup);
-    currentTrail = TRAIL_CONFIGS[a.name] || TRAIL_CONFIGS.Fox;
+    currentTrail = TRAIL_CONFIGS[def.name] || TRAIL_CONFIGS.Fox;
     // Update picker highlight so the chosen animal is always visually marked
     animalBtnList.forEach(b => b.classList.toggle('selected', +b.dataset.animal === animalIdx));
+  }
+
+  // Crossfade between idle/run/air clips
+  function setAnimState(state) {
+    if (!animalRig || !animalRig.mixer || animalRig.current === state) return;
+    const from = animalRig.actions[animalRig.current];
+    const to = animalRig.actions[state];
+    if (to && to !== from) {
+      to.enabled = true;
+      to.reset().play();
+      from.crossFadeTo(to, 0.18, false);
+    }
+    animalRig.current = state;
   }
 
   // Picker button click handlers — remember the user's deliberate choice
@@ -2409,15 +2501,11 @@
 
     const sp = Math.hypot(player.vel.x, player.vel.z);
     const running = player.onGround && sp > 1;
+
+    // GLTF models: drive the skeletal animation state machine
+    setAnimState(!player.onGround ? 'air' : (running ? 'run' : 'idle'));
+
     if (running) {
-      const ph = t * 16;
-      const swing = 0.7;
-      legs[0].rotation.x =  Math.sin(ph) * swing;
-      legs[3].rotation.x =  Math.sin(ph) * swing;
-      legs[1].rotation.x = -Math.sin(ph) * swing;
-      legs[2].rotation.x = -Math.sin(ph) * swing;
-      // Whole-body bob (replaces per-animal body/sides bob — works for any animal)
-      animalGroup.position.y += Math.abs(Math.sin(ph)) * 0.05;
       // Sprint trail (only above a comfortable running speed)
       if (sp > 4) {
         player.trailTimer = (player.trailTimer || 0) + dt;
@@ -2428,13 +2516,26 @@
       } else {
         player.trailTimer = 0;
       }
-    } else if (!player.onGround) {
-      legs[0].rotation.x = -0.5;
-      legs[1].rotation.x = -0.5;
-      legs[2].rotation.x =  0.4;
-      legs[3].rotation.x =  0.4;
-    } else {
-      for (const l of legs) l.rotation.x *= 0.85;
+    }
+
+    // Primitive fallbacks: procedural leg/body animation while the GLB streams in
+    if (legs.length >= 4) {
+      if (running) {
+        const ph = t * 16;
+        const swing = 0.7;
+        legs[0].rotation.x =  Math.sin(ph) * swing;
+        legs[3].rotation.x =  Math.sin(ph) * swing;
+        legs[1].rotation.x = -Math.sin(ph) * swing;
+        legs[2].rotation.x = -Math.sin(ph) * swing;
+        animalGroup.position.y += Math.abs(Math.sin(ph)) * 0.05;
+      } else if (!player.onGround) {
+        legs[0].rotation.x = -0.5;
+        legs[1].rotation.x = -0.5;
+        legs[2].rotation.x =  0.4;
+        legs[3].rotation.x =  0.4;
+      } else {
+        for (const l of legs) l.rotation.x *= 0.85;
+      }
     }
 
     if (tailGrp) {
@@ -2588,6 +2689,8 @@
     animateClouds(dt);
     animateBirds(dt, t);
     updateTheme(dt);
+    // Skeletal animation always ticks — idle on the title screen, run in game, even during death
+    if (animalRig && animalRig.mixer) animalRig.mixer.update(dt);
     update(dt, t);
     updateParticles(dt);
     updateCamera(dt);
@@ -2603,6 +2706,12 @@
   // Apply the starting theme so the scene matches THEMES[0] from frame 0
   targetColors = buildTargetColors(THEMES[0]);
   applyThemeState();
+  // Debug handle for console inspection
+  window.__CH = {
+    scene, camera, player, modelCache, ANIMAL_DEFS,
+    get animalGroup() { return animalGroup; },
+    get animalRig() { return animalRig; }
+  };
   loop();
 })();
 </script>
