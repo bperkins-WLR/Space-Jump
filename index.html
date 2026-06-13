@@ -87,6 +87,58 @@
     border-color: rgba(255,220,180,0.85);
     box-shadow: 0 0 18px rgba(255,150,80,0.55);
   }
+
+  /* ---------- Leaderboard ---------- */
+  #submitBox.hidden, #lbPanel.hidden { display: none; }
+  #submitBox {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 8px; margin: 8px 0 4px;
+  }
+  #nameInput {
+    padding: 10px 14px; font-size: 18px; width: 220px;
+    border-radius: 8px; border: 2px solid rgba(255,255,255,0.4);
+    background: rgba(0,0,0,0.4); color: #fff; text-align: center;
+    text-transform: uppercase; letter-spacing: 2px; outline: none;
+    font-family: inherit;
+  }
+  #nameInput:focus { border-color: #6cf; box-shadow: 0 0 12px rgba(100,200,255,0.5); }
+  #submitBtn {
+    margin-top: 0 !important; padding: 8px 22px !important; font-size: 17px !important;
+    background: linear-gradient(#7e6, #3a4) !important; color: #fff !important;
+  }
+  #submitStatus { font-size: 15px; min-height: 18px; margin: 0; color: #ffd; }
+  #lbPanel {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.6);
+  }
+  .lb-card {
+    background: linear-gradient(#1a2a4a, #0c1430);
+    border: 2px solid rgba(120,180,255,0.4);
+    border-radius: 14px; padding: 20px 26px;
+    width: min(420px, 90vw); max-height: 80vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 0 40px rgba(80,140,255,0.35);
+  }
+  .lb-card h2 { margin: 0 0 12px; text-align: center; text-shadow: 0 0 12px #6cf; }
+  #lbList { overflow-y: auto; flex: 1; }
+  #lbList .lb-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 8px; border-radius: 8px; font-size: 17px;
+  }
+  #lbList .lb-row:nth-child(odd) { background: rgba(255,255,255,0.06); }
+  #lbList .lb-row .rank  { width: 34px; text-align: right; opacity: 0.8; }
+  #lbList .lb-row .ani   { width: 28px; text-align: center; }
+  #lbList .lb-row .nm    { flex: 1; letter-spacing: 1px; }
+  #lbList .lb-row .sc    { font-weight: 700; color: #ffd633; }
+  #lbList .lb-row.top1 .rank { color: #ffd633; }
+  #lbList .lb-row.top2 .rank { color: #ccd5e0; }
+  #lbList .lb-row.top3 .rank { color: #d8915b; }
+  #lbClose {
+    margin-top: 14px; padding: 10px; font-size: 17px;
+    background: linear-gradient(#6cf, #36c); color: #fff;
+    border: 0; border-radius: 8px; cursor: pointer; font-weight: 700;
+  }
   #levelFlash {
     position: fixed; top: 28%; left: 50%; transform: translate(-50%, -50%) scale(0.7);
     font-size: 60px; font-weight: 800; letter-spacing: 3px;
@@ -182,6 +234,14 @@
 <div id="activePowers"></div>
 <div id="levelFlash"></div>
 
+<div id="lbPanel" class="hidden">
+  <div class="lb-card">
+    <h2>🏆 Global Top 25</h2>
+    <div id="lbList">Loading…</div>
+    <button id="lbClose" type="button">Close</button>
+  </div>
+</div>
+
 <div id="touch">
   <div class="pad">
     <button class="btn-fwd"  data-key="KeyW" aria-label="Forward">▲</button>
@@ -207,9 +267,15 @@
   <p class="kbd">Keys: W/↑ forward · A D strafe · SPACE to jump (hold for higher · tap again for double jump)</p>
   <p class="touchhint">On iPad: use the on-screen buttons. Tap JUMP twice for a double jump.</p>
   <p>Collect golden rings. Difficulty ramps every level.</p>
+  <div id="submitBox" class="hidden">
+    <input id="nameInput" maxlength="12" placeholder="YOUR NAME" autocomplete="off" spellcheck="false" />
+    <button id="submitBtn" type="button">Submit Score</button>
+    <p id="submitStatus"></p>
+  </div>
   <div class="row">
     <button id="startBtn">Start</button>
     <button id="shuffleBtn" class="secondary" type="button">🎲 Shuffle Tiles</button>
+    <button id="lbBtn" class="secondary" type="button">🏆 Leaderboard</button>
   </div>
   <p style="opacity:0.7;font-size:14px;margin-top:18px;">
     Tip: tap the Share icon in Safari → "Add to Home Screen" to play full-screen.
@@ -2035,11 +2101,14 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
   let jumpPressed = false, jumpHeld = false;
 
   window.addEventListener('keydown', e => {
+    // Don't hijack keys while the player is typing their leaderboard name
+    if (e.target && e.target.tagName === 'INPUT') return;
     if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
     if (e.repeat) return;
     keys[e.code] = true;
     if (e.code === 'Space') { jumpPressed = true; jumpHeld = true; }
-    if ((e.code === 'Enter' || e.code === 'Space') && !overlay.classList.contains('hidden')) {
+    if ((e.code === 'Enter' || e.code === 'Space') && !overlay.classList.contains('hidden')
+        && lbPanel.classList.contains('hidden')) {
       startGame();
     }
   });
@@ -2093,6 +2162,96 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
   }
   shuffleBtn.addEventListener('click', shuffleTiles);
   shuffleBtn.addEventListener('touchend', shuffleTiles);
+
+  // ---------- Global leaderboard ----------
+  const API_URL = 'api/scores';
+  const submitBox = document.getElementById('submitBox');
+  const nameInput = document.getElementById('nameInput');
+  const submitBtn = document.getElementById('submitBtn');
+  const submitStatus = document.getElementById('submitStatus');
+  const lbPanel = document.getElementById('lbPanel');
+  const lbList = document.getElementById('lbList');
+  const lbBtn = document.getElementById('lbBtn');
+  const lbClose = document.getElementById('lbClose');
+
+  function renderLeaderboard(top) {
+    lbList.innerHTML = '';
+    if (!top || top.length === 0) {
+      lbList.textContent = 'No scores yet — be the first!';
+      return;
+    }
+    const medals = ['🥇', '🥈', '🥉'];
+    top.forEach((entry, i) => {
+      const row = document.createElement('div');
+      row.className = 'lb-row' + (i < 3 ? ` top${i + 1}` : '');
+      const rank = document.createElement('span');
+      rank.className = 'rank';
+      rank.textContent = medals[i] || (i + 1) + '.';
+      const ani = document.createElement('span');
+      ani.className = 'ani';
+      ani.textContent = entry.animal || '🦊';
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = entry.name;
+      const sc = document.createElement('span');
+      sc.className = 'sc';
+      sc.textContent = entry.score;
+      row.append(rank, ani, nm, sc);
+      lbList.appendChild(row);
+    });
+  }
+
+  async function openLeaderboard() {
+    unlockAudio();
+    lbPanel.classList.remove('hidden');
+    lbList.textContent = 'Loading…';
+    try {
+      const r = await fetch(API_URL);
+      const data = await r.json();
+      if (data.ok) renderLeaderboard(data.top);
+      else lbList.textContent = 'Global leaderboard isn\'t connected yet.';
+    } catch {
+      lbList.textContent = 'Couldn\'t reach the leaderboard — check your connection.';
+    }
+  }
+  lbBtn.addEventListener('click', openLeaderboard);
+  lbClose.addEventListener('click', () => lbPanel.classList.add('hidden'));
+  lbPanel.addEventListener('click', (e) => { if (e.target === lbPanel) lbPanel.classList.add('hidden'); });
+
+  async function submitScore() {
+    const name = nameInput.value.trim();
+    if (!name) { submitStatus.textContent = 'Enter a name first!'; nameInput.focus(); return; }
+    storage.set('cloudHopperName', name);
+    submitBtn.disabled = true;
+    submitStatus.textContent = 'Submitting…';
+    try {
+      const r = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, score, animal: ANIMAL_DEFS[animalIdx].emoji })
+      });
+      const data = await r.json();
+      if (data.ok) {
+        submitStatus.textContent = data.rank
+          ? `You're #${data.rank} in the world! 🎉`
+          : 'Score submitted!';
+        nameInput.blur();
+        sfx.levelup();
+      } else if (data.offline) {
+        submitStatus.textContent = 'Global leaderboard isn\'t connected yet — score saved on this device.';
+      } else {
+        submitStatus.textContent = 'Couldn\'t submit (' + (data.error || 'error') + ') — try again.';
+        submitBtn.disabled = false;
+      }
+    } catch {
+      submitStatus.textContent = 'No connection — score saved on this device.';
+      submitBtn.disabled = false;
+    }
+  }
+  submitBtn.addEventListener('click', submitScore);
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitScore(); }
+  });
   // Unlock audio on any first touch
   document.addEventListener('touchstart', unlockAudio, { once: true });
   document.addEventListener('click', unlockAudio, { once: true });
@@ -2228,6 +2387,8 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
     reset();
     started = true;
     overlay.classList.add('hidden');
+    submitBox.classList.add('hidden');
+    lbPanel.classList.add('hidden');
   }
   function endGame() {
     if (player.dead) return;
@@ -2267,6 +2428,15 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
       `Final score: ${score}   ·   Best: ${best}<br>` +
       `<span style="color:#ffd633;">⊙</span> Rings collected: ${coinsCollected}   ·   Best: ${bestCoins}`;
     startBtn.textContent = 'Try again';
+    // Offer a leaderboard submission for this run
+    if (score >= 1) {
+      nameInput.value = storage.get('cloudHopperName') || '';
+      submitStatus.textContent = '';
+      submitBtn.disabled = false;
+      submitBox.classList.remove('hidden');
+    } else {
+      submitBox.classList.add('hidden');
+    }
     overlay.classList.remove('hidden');
   }
 
